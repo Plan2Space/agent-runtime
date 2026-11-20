@@ -521,7 +521,7 @@ def _report_error(as_json: bool, message: str) -> int:
         else:
             print(f"error: {message}")
     except Exception:  # noqa: BLE001 - nothing more can be reported; the exit code still says input error
-        pass
+        return 2
     return 2
 
 
