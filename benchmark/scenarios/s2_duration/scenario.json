@@ -1,0 +1,5 @@
+{
+  "scenario": "s2_duration",
+  "difficulty": 2,
+  "description": "three coupled defects in one module (regex anchoring, case, unit factor)"
+}

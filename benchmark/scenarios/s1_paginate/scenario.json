@@ -1,0 +1,5 @@
+{
+  "scenario": "s1_paginate",
+  "difficulty": 1,
+  "description": "single off-by-one in one function"
+}
