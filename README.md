@@ -1,5 +1,8 @@
 # agent-runtime
 
+> **Política de SPECs e skills:** as SPECs e skills do ecossistema Plan2Space são mantidas exclusivamente em
+> `Plan2Space/claude-engineering-skills`. Nenhuma SPEC nova é criada neste repositório. Ver `CLAUDE.md`.
+
 Runtime durável de agentes do Plan2Space: EventStore, outbox transacional, workers,
 adapters de CLI (Claude Code / Codex), supervisor, integração com GitHub,
 agendamento, idempotência e recuperação.
