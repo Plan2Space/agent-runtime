@@ -15,8 +15,9 @@ import pytest
 
 from agent_runtime.event_store import EventStore, LeaseLost
 
-ROOT = Path(__file__).resolve().parents[1] / "src"
-LEASE_S = 2.0
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"  # present in the repository; absent when the suite runs against an installed wheel
+LEASE_S = 4.0  # 2.0 s was too tight for a slow CI or an installed-wheel run: the dead owner must still hold the lease right after the kill
 TYPE = "REVIEW_REQUESTED"
 
 CLAIM_AND_HANG = """
@@ -82,7 +83,9 @@ class Child:
     """Processo filho com leitura de stdout COM PRAZO (thread + fila: `readline` bloqueante nao respeita prazo, nem no Windows)."""
 
     def __init__(self, code: str, *args: str):
-        env = {**os.environ, "PYTHONPATH": str(ROOT), "PYTHONUTF8": "1"}
+        env = {**os.environ, "PYTHONUTF8": "1"}
+        if SRC.is_dir():
+            env["PYTHONPATH"] = str(SRC)
         self.proc = subprocess.Popen([sys.executable, "-c", code, *args], cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.lines: queue.Queue = queue.Queue()
         self.stderr = ""
