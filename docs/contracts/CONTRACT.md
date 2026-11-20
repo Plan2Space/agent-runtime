@@ -61,7 +61,7 @@ Ambiente de verificação: dependências **fixas** em `scripts/verify-requiremen
 
 ```
 python -m venv venv
-venv/bin/python -m pip install -r scripts/verify-requirements.txt   # Windows: venvScriptspython.exe
+venv/bin/python -m pip install -r scripts/verify-requirements.txt   # Windows: use venv\Scripts\python.exe
 python -m pip wheel . --no-deps -w dist
 python scripts/verify_install.py --wheel dist/agent_runtime-0.1.0-py3-none-any.whl --expect-version 0.1.0
 ```
