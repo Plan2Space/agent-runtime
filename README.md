@@ -1,5 +1,9 @@
 # agent-runtime
 
+> **Conhecimento compartilhado:** skills reutilizáveis e contratos entre repositórios ficam em
+> `Plan2Space/claude-engineering-skills`; SPECs e contratos internos do runtime permanecem aqui.
+> Ver `CLAUDE.md` e `AGENTS.md` para a referência versionada e os próximos passos.
+
 Runtime durável de agentes do Plan2Space: EventStore, outbox transacional, workers,
 adapters de CLI (Claude Code / Codex), supervisor, integração com GitHub,
 agendamento, idempotência e recuperação.
