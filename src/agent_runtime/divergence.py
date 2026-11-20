@@ -9,12 +9,13 @@ Contract:
   never creates a file (no store, no schema, no WAL/SHM sidecar).
 - The database is not opened through `EventStore`: its `_conn` runs
   `PRAGMA journal_mode=WAL`, which writes.
-- Snapshot: the database file set (main, -wal, -shm) is fingerprinted before and
-  after the read. A change in between means a writer committed during the read,
-  so the result is refused. Writers are not locked out by this check; it only
-  refuses to report a snapshot it cannot vouch for.
+- Snapshot by content: the bytes of the database and of its -wal are read before
+  and after the read, and so are the queue bytes. Size and mtime are not used:
+  a same-size rewrite within one mtime tick is invisible to stat(). A change in
+  between means a writer committed during the read, so the result is refused.
+  A rollback journal present means a transaction is in progress, also refused.
 - A missing, unreadable or invalid source is an error, never an empty set and
-  never `consistent`. An empty queue would look like agreement.
+  never `consistent`. Any unexpected failure inside detection is also an error.
 - Unknown queue states are reported, never assumed equal.
 - A consistent result is not cutover authorization. #19 gates the cutover with
   executor and bridge quiescence, which this module does not prove.
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sqlite3
 import sys
@@ -47,13 +49,16 @@ REQUIRED_COLUMNS = frozenset({
 # Codes that are reported but do not make the result inconsistent (unless strict).
 WARNING_CODES = frozenset({"ORPHAN_IN_STORE"})
 
-# Queue states the executor may still pick (below the attempt budget).
+# Executor contract values, pinned here and checked against the executor by the
+# #19 gate. Changing them in one place without the other is a divergence source.
 PICKABLE = frozenset({"QUEUED", "FAILED", "BLOCKED_CLI", "BLOCKED_CREDENTIALS", "BLOCKED_WORKTREE"})
 RETRYABLE = frozenset({"FAILED", "BLOCKED_CLI", "BLOCKED_CREDENTIALS", "BLOCKED_WORKTREE", "BLOCKED_REVIEW_FETCH"})
 FINISHED = frozenset({"DONE_AWAITING_REREVIEW", "SUPERSEDED", "REFUSED", "PARKED_UNSUPPORTED"})
 EXECUTABLE_EVENT = frozenset({"PENDING", "RUNNING"})
 
 # Expected event status for each queue state (queue state -> allowed statuses).
+# BLOCKED_REVIEW_FETCH is resumed by the bridge, never picked by the executor, so a
+# PENDING event for it would be work only the store could run: only DLQ is allowed.
 EXPECTED: Mapping[str, frozenset[str]] = {
     "QUEUED": frozenset({"PENDING"}),
     "RUNNING": frozenset({"PENDING"}),
@@ -65,7 +70,7 @@ EXPECTED: Mapping[str, frozenset[str]] = {
     "BLOCKED_CLI": frozenset({"PENDING", "DLQ"}),
     "BLOCKED_CREDENTIALS": frozenset({"PENDING", "DLQ"}),
     "BLOCKED_WORKTREE": frozenset({"PENDING", "DLQ"}),
-    "BLOCKED_REVIEW_FETCH": frozenset({"PENDING", "DLQ"}),
+    "BLOCKED_REVIEW_FETCH": frozenset({"DLQ"}),
 }
 
 CANONICAL_ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
@@ -99,16 +104,21 @@ def mirror_key(item: Mapping[str, Any]) -> str:
     return f"review:{review_id}:{item.get('pr')}:{item.get('head_sha')}"
 
 
+def _canon(value: Any) -> str:
+    """Canonical JSON text. Distinguishes types that Python equates: True != 1, 7.0 != 7."""
+    return json.dumps(value, sort_keys=True, ensure_ascii=True)
+
+
 def payload_mismatch(item: Mapping[str, Any], event: Mapping[str, Any]) -> str:
     """'' when the event describes the same work as the queue item, else the reason.
 
     The idempotency key alone is not enough: the store keeps the first payload
     published for a key, so a colliding event with different PR/head would be
-    accepted silently."""
+    accepted silently. Values are compared by canonical JSON, not by Python equality."""
     raw = event.get("payload")
     try:
         payload = json.loads(raw) if isinstance(raw, str) else raw
-    except ValueError:
+    except (ValueError, RecursionError):
         return "payload is not JSON"
     if not isinstance(payload, dict):
         return "event has no readable payload"
@@ -117,7 +127,7 @@ def payload_mismatch(item: Mapping[str, Any], event: Mapping[str, Any]) -> str:
         return f"job_id {event.get('job_id')!r} != 'pr:{item.get('pr')}'"
     for field, want in (("pr", item.get("pr")), ("head_sha", item.get("head_sha")),
                         ("review_id", review_id), ("issue", item.get("issue"))):
-        if payload.get(field) != want:
+        if _canon(payload.get(field)) != _canon(want):
             return f"payload field {field!r} ({payload.get(field)!r}) differs from queue item ({want!r})"
     return ""
 
@@ -132,6 +142,24 @@ def _epoch(iso: object) -> float | None:
         return dt.datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.UTC).timestamp()
     except ValueError:
         return None
+
+
+def _int_field(source: Mapping[str, Any], name: str, default: int) -> int:
+    value = source.get(name)
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise DivergenceInputError(f"field `{name}` is not an integer")
+    return value
+
+
+def _num_field(source: Mapping[str, Any], name: str, default: float) -> float:
+    value = source.get(name)
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise DivergenceInputError(f"field `{name}` is not a finite number")
+    return float(value)
 
 
 def invalid_item(item: Mapping[str, Any]) -> str:
@@ -169,6 +197,8 @@ def compare(
     pickable: frozenset[str] = PICKABLE,
 ) -> list[Divergence]:
     """Compare a queue snapshot with store events. Pure: no I/O, no clock unless `now` is None."""
+    if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 0:
+        raise DivergenceInputError("max_attempts must be an integer >= 0")
     mirror = {
         e["idempotency_key"]: e
         for e in events
@@ -176,6 +206,7 @@ def compare(
     }
     found: list[Divergence] = []
     matched: set[str] = set()
+    work_seen: set[str] = set()
     t_now = time.time() if now is None else now
 
     for n, item in enumerate(queue):
@@ -191,9 +222,16 @@ def compare(
         if item.get("kind") != "review":
             continue
 
-        event = mirror.get(mirror_key(item))
+        work = mirror_key(item)
+        if work in work_seen:
+            # Two queue items for the same review, PR and head with different keys: one
+            # event would stand for both and the second item's state would go unchecked.
+            raise DivergenceInputError(f"duplicate review work item in queue at item #{n} (same review, PR and head)")
+        work_seen.add(work)
+
+        event = mirror.get(work)
         if event is None:
-            found.append(Divergence("MISSING_IN_STORE", key, f"item {state} without event {mirror_key(item)}"))
+            found.append(Divergence("MISSING_IN_STORE", key, f"item {state} without event {work}"))
             continue
         matched.add(event["idempotency_key"])
 
@@ -228,7 +266,7 @@ def compare(
 def _check_budget_and_window(found: list[Divergence], key: str, state: str, item: Mapping[str, Any],
                              event: Mapping[str, Any], max_attempts: int, pickable: frozenset[str],
                              t_now: float) -> None:
-    json_attempts = int(item.get("attempts") or 0)
+    json_attempts = _int_field(item, "attempts", 0)
     can_pick = state in pickable and json_attempts < max_attempts
     if event["status"] == "DLQ" and can_pick:
         found.append(Divergence("STATE_MISMATCH", key,
@@ -243,12 +281,13 @@ def _check_budget_and_window(found: list[Divergence], key: str, state: str, item
         return
 
     json_left = max_attempts - json_attempts
-    event_max = max_attempts if event.get("max_attempts") is None else int(event["max_attempts"])
-    event_left = event_max - int(event.get("attempt") or 0)
+    event_max = _int_field(event, "max_attempts", max_attempts)
+    event_attempt = _int_field(event, "attempt", 0)
+    event_left = event_max - event_attempt
     if event_left <= 0:
         found.append(Divergence("STATE_MISMATCH", key,
                                 f"PENDING event not claimable (max_attempts={event_max}, "
-                                f"attempt={int(event.get('attempt') or 0)}) but queue item has {json_left} attempt(s) left"))
+                                f"attempt={event_attempt}) but queue item has {json_left} attempt(s) left"))
         return
     if event_left != json_left:
         found.append(Divergence("STATE_MISMATCH", key,
@@ -256,7 +295,7 @@ def _check_budget_and_window(found: list[Divergence], key: str, state: str, item
 
     retry_at = _epoch(item.get("retry_after"))
     json_ready = max(retry_at or 0.0, t_now)
-    event_ready = max(float(event.get("available_at") or 0), t_now)
+    event_ready = max(_num_field(event, "available_at", 0.0), t_now)
     if event_ready < json_ready - 1:
         found.append(Divergence("STATE_MISMATCH", key,
                                 "queue waits for `retry_after` but the event is available earlier"))
@@ -266,25 +305,24 @@ def _check_budget_and_window(found: list[Divergence], key: str, state: str, item
                                 f"(tolerance {LATE_TOLERANCE_S}s)"))
 
 
-def read_queue(path: str | Path) -> list[dict[str, Any]]:
-    """The queue file must exist and carry an explicit `queue` list. Anything else is an error.
-
-    A UTF-8 BOM is accepted (`utf-8-sig`). Duplicate review keys are an error: a
-    duplicate would be compared once and hide the second item."""
+def _read_queue_bytes(path: str | Path) -> bytes:
     p = Path(path)
     try:
         if not p.is_file():
             raise DivergenceInputError(f"queue file missing: {p.name}")
-        raw = p.read_bytes()
+        return p.read_bytes()
     except OSError as exc:
         raise DivergenceInputError(f"queue file unreadable ({type(exc).__name__}): {p.name}") from exc
+
+
+def _parse_queue(raw: bytes, label: str) -> list[dict[str, Any]]:
     try:
         data = json.loads(raw.decode("utf-8-sig"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise DivergenceInputError(f"queue file is not valid JSON ({type(exc).__name__}): {p.name}") from exc
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise DivergenceInputError(f"queue file is not valid JSON ({type(exc).__name__}): {label}") from exc
     queue = data.get("queue") if isinstance(data, dict) else None
     if not isinstance(queue, list) or any(not isinstance(i, dict) for i in queue):
-        raise DivergenceInputError(f"queue file without a `queue` list of objects: {p.name}")
+        raise DivergenceInputError(f"queue file without a `queue` list of objects: {label}")
     seen: set[str] = set()
     for n, item in enumerate(queue):
         problem = invalid_item(item)
@@ -297,52 +335,61 @@ def read_queue(path: str | Path) -> list[dict[str, Any]]:
     return queue
 
 
-def _fingerprint(path: Path) -> tuple[tuple[int, int] | None, ...]:
-    """(size, mtime_ns) of the database, its -wal and its -shm; None when absent.
+def read_queue(path: str | Path) -> list[dict[str, Any]]:
+    """The queue file must exist and carry an explicit `queue` list. Anything else is an error.
 
-    Read-only: stat() only. Any commit, checkpoint or sidecar change moves at least one entry."""
-    out: list[tuple[int, int] | None] = []
-    for candidate in (path, path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")):
-        try:
-            st = candidate.stat()
-            out.append((st.st_size, st.st_mtime_ns))
-        except FileNotFoundError:
-            out.append(None)
-    return tuple(out)
+    A UTF-8 BOM is accepted (`utf-8-sig`). Duplicate review keys are an error: a
+    duplicate would be compared once and hide the second item."""
+    return _parse_queue(_read_queue_bytes(path), Path(path).name)
+
+
+def _snapshot(path: Path) -> tuple[bytes, bytes | None]:
+    """Bytes of the main database and of its -wal (None when absent). Read-only.
+
+    Compared before and after the read. A rollback journal is refused: its presence
+    means a transaction is in progress, and its content is not part of this snapshot."""
+    if path.with_name(path.name + "-journal").exists():
+        raise DivergenceInputError("event store has a rollback journal: a transaction is in progress; "
+                                   "quiesce writers and retry")
+    db = path.read_bytes()
+    try:
+        wal = path.with_name(path.name + "-wal").read_bytes()
+    except FileNotFoundError:
+        wal = None
+    return db, wal
 
 
 def _is_wal(path: Path) -> bool:
     """True when the database file is in WAL mode (header byte 18 == 2).
 
-    A WAL store is opened `immutable=1`: no locks, no `-shm` created. That reads
-    only the main file, so it is consistent only if the WAL holds no frames. A
-    non-empty `-wal` is refused, and `read_events` re-checks the fingerprint."""
+    A WAL store is opened `immutable=1`: no locks, no `-shm` created. That reads only
+    the main file, so it is consistent only if the WAL holds no frames. A non-empty
+    `-wal` is refused here, and `read_events` compares the snapshot again afterwards."""
     with path.open("rb") as fh:
         header = fh.read(20)
     if len(header) < 20 or header[:16] != SQLITE_MAGIC or header[18] != 2:
         return False
-    wal = path.with_name(path.name + "-wal")
-    if wal.exists() and wal.stat().st_size > 0:
+    try:
+        wal_size = path.with_name(path.name + "-wal").stat().st_size
+    except FileNotFoundError:
+        wal_size = 0
+    if wal_size > 0:
         raise DivergenceInputError("event store has a non-empty WAL: a writer is open or data is not checkpointed; "
                                    "quiesce writers and retry")
     return True
 
 
 def read_events(path: str | Path) -> list[dict[str, Any]]:
-    """Events from the store, read without writing, and only if the snapshot did not move.
-
-    Order: fingerprint -> WAL check -> read -> fingerprint. A commit by a writer
-    after the first fingerprint changes the sidecars or the main file, so the
-    second fingerprint differs and the result is refused."""
+    """Events from the store, read without writing, and only if the snapshot did not move."""
     p = Path(path)
     try:
         if not p.is_file():
             raise DivergenceInputError(f"event store missing: {p.name}")
-        before = _fingerprint(p)
+        before = _snapshot(p)
         wal_mode = _is_wal(p)
         uri = p.resolve().as_uri() + ("?mode=ro&immutable=1" if wal_mode else "?mode=ro")
         rows = _select_events(uri)
-        after = _fingerprint(p)
+        after = _snapshot(p)
     except OSError as exc:
         raise DivergenceInputError(f"event store unreadable ({type(exc).__name__}): {p.name}") from exc
     if before != after:
@@ -375,28 +422,24 @@ def _select_events(uri: str) -> list[dict[str, Any]]:
 def detect(queue_path: str | Path, store_path: str | Path, *, now: float | None = None,
            max_attempts: int = DEFAULT_MAX_ATTEMPTS) -> list[Divergence]:
     """Read both sources and compare them. Raises DivergenceInputError when either is unusable."""
-    before = _file_fingerprint(queue_path)
-    queue = read_queue(queue_path)
+    raw_before = _read_queue_bytes(queue_path)
+    queue = _parse_queue(raw_before, Path(queue_path).name)
     events = read_events(store_path)
-    if _file_fingerprint(queue_path) != before:
-        raise DivergenceInputError("queue file changed during the read (a bridge cycle wrote it): quiesce the bridge and retry")
-    return compare(queue, events, now=now, max_attempts=max_attempts)
-
-
-def _file_fingerprint(path: str | Path) -> tuple[int, int]:
-    """(size, mtime_ns) of the queue file. A read-only stat(); a missing file is a structured error."""
-    p = Path(path)
+    if _read_queue_bytes(queue_path) != raw_before:
+        raise DivergenceInputError("queue file changed during the read (a bridge cycle wrote it): "
+                                   "quiesce the bridge and retry")
     try:
-        st = p.stat()
-    except FileNotFoundError as exc:
-        raise DivergenceInputError(f"queue file missing: {p.name}") from exc
-    except OSError as exc:
-        raise DivergenceInputError(f"queue file unreadable ({type(exc).__name__}): {p.name}") from exc
-    return st.st_size, st.st_mtime_ns
+        return compare(queue, events, now=now, max_attempts=max_attempts)
+    except DivergenceInputError:
+        raise
+    except (ValueError, TypeError, KeyError, OverflowError, RecursionError) as exc:
+        raise DivergenceInputError(f"inconsistent input ({type(exc).__name__})") from exc
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Exit 0: consistent (warnings allowed). Exit 1: divergence. Exit 2: input error."""
+    """Exit 0: consistent (warnings allowed). Exit 1: divergence. Exit 2: input error or internal failure."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     ap = argparse.ArgumentParser(description="Read-only divergence check: JSON queue vs EventStore.")
     ap.add_argument("--queue", required=True, help="path to the JSON queue file")
     ap.add_argument("--store", required=True, help="path to the SQLite EventStore")
@@ -405,17 +448,16 @@ def main(argv: list[str] | None = None) -> int:
     ns = ap.parse_args(argv)
     try:
         found = detect(ns.queue, ns.store)
-    except (DivergenceInputError, OSError) as exc:
-        if ns.json:
-            print(json.dumps({"consistent": False, "authorizes_cutover": False, "error": str(exc)}, ensure_ascii=True))
-        else:
-            print(f"error: {exc}")
-        return 2
+    except DivergenceInputError as exc:
+        return _report_error(ns.json, str(exc))
+    except Exception as exc:  # noqa: BLE001 - fail-closed boundary: an internal failure is never exit 1
+        return _report_error(ns.json, f"internal error ({type(exc).__name__})")
     errors = [d for d in found if not d.is_warning]
     warnings = [d for d in found if d.is_warning]
-    consistent = not errors and not (ns.strict and warnings)
+    failed_on = "divergence" if errors else ("warning (strict)" if ns.strict and warnings else None)
+    consistent = failed_on is None
     if ns.json:
-        print(json.dumps({"consistent": consistent, "authorizes_cutover": False,
+        print(json.dumps({"consistent": consistent, "authorizes_cutover": False, "failed_on": failed_on,
                           "divergences": [d.as_dict() for d in errors],
                           "warnings": [d.as_dict() for d in warnings]}, ensure_ascii=True, indent=1))
     else:
@@ -423,6 +465,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{d.code:18} {d.key}: {d.detail}")
         print(f"divergence: {len(errors)} divergence(s), {len(warnings)} warning(s)")
     return 0 if consistent else 1
+
+
+def _report_error(as_json: bool, message: str) -> int:
+    if as_json:
+        print(json.dumps({"consistent": False, "authorizes_cutover": False, "error": message}, ensure_ascii=True))
+    else:
+        print(f"error: {message}")
+    return 2
 
 
 if __name__ == "__main__":

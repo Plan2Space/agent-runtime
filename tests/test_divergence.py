@@ -351,7 +351,7 @@ def test_os_error_during_store_access_is_structured(tmp_path, monkeypatch):
 
     def denied(path):
         raise PermissionError("denied")
-    monkeypatch.setattr(dv, "_fingerprint", denied)
+    monkeypatch.setattr(dv, "_snapshot", denied)
     with pytest.raises(dv.DivergenceInputError, match="unreadable"):
         dv.detect(q, db, now=NOW)
 
@@ -426,5 +426,5 @@ def test_cli_unexpected_os_error_exits_two_not_one(tmp_path, capsys, monkeypatch
 
     def denied(path):
         raise PermissionError("denied")
-    monkeypatch.setattr(dv, "_fingerprint", denied)
+    monkeypatch.setattr(dv, "_snapshot", denied)
     assert dv.main(["--queue", str(q), "--store", str(db), "--json"]) == 2
