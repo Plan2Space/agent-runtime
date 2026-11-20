@@ -275,3 +275,61 @@ def test_cli_strict_failure_reports_failed_on_warning(tmp_path, capsys):
     assert dv.main(["--queue", str(q), "--store", str(db), "--json", "--strict"]) == 1
     report = json.loads(capsys.readouterr().out)
     assert report["failed_on"] == "warning (strict)" and report["divergences"] == []
+
+
+def test_broken_output_with_value_error_exits_two_never_one(tmp_path, monkeypatch):
+    it = item("QUEUED")
+    db = tmp_path / "events.sqlite"
+    make_store(db, it)
+    q = tmp_path / "queue.json"
+    q.write_text(json.dumps({"queue": [it]}), encoding="utf-8")
+
+    def closed_file(*a, **k):
+        raise ValueError("I/O operation on closed file")
+    monkeypatch.setattr("builtins.print", closed_file)
+    assert dv.main(["--queue", str(q), "--store", str(db), "--json"]) == 2
+
+
+def test_text_mode_input_error_exits_two(tmp_path, capsys):
+    db = tmp_path / "events.sqlite"
+    EventStore(db)
+    assert dv.main(["--queue", str(tmp_path / "missing.json"), "--store", str(db)]) == 2
+    assert "queue file missing" in capsys.readouterr().out
+
+
+def test_queued_comment_is_an_unmirrored_divergence_not_silence():
+    comment = {"kind": "comment", "key": "c1", "state": "QUEUED"}
+    assert codes(dv.compare([comment], [], now=NOW)) == ["UNMIRRORED_ITEM"]
+
+
+def test_comment_without_key_is_refused():
+    with pytest.raises(dv.DivergenceInputError, match="without `key`"):
+        dv.compare([{"kind": "comment", "state": "DONE"}], [], now=NOW)
+
+
+def test_bridge_event_of_other_type_executable_is_foreign():
+    other = {"idempotency_key": "rev:1", "producer": "event_bridge", "event_type": "REVIEW_REQUESTED",
+             "job_id": "pr:1", "payload": "{}", "status": "PENDING", "attempt": 0, "max_attempts": 3,
+             "available_at": NOW}
+    assert codes(dv.compare([], [other], now=NOW)) == ["FOREIGN_EXECUTABLE"]
+
+
+def test_running_foreign_event_is_foreign():
+    running = {"idempotency_key": "impl:2", "producer": "coordinator", "event_type": "IMPLEMENT_REQUESTED",
+               "job_id": "pr:2", "payload": "{}", "status": "RUNNING", "attempt": 1, "max_attempts": 3,
+               "available_at": NOW}
+    assert codes(dv.compare([], [running], now=NOW)) == ["FOREIGN_EXECUTABLE"]
+
+
+def test_null_event_attempt_is_an_input_error_not_a_default():
+    it = item("FAILED", attempts=1)
+    ev = ev_for(it, status="PENDING", attempt=None)
+    with pytest.raises(dv.DivergenceInputError, match="`attempt` is missing"):
+        dv.compare([it], [ev], now=NOW)
+
+
+def test_null_event_max_attempts_is_an_input_error_not_a_default():
+    it = item("FAILED", attempts=1)
+    ev = ev_for(it, status="PENDING", max_attempts=None)
+    with pytest.raises(dv.DivergenceInputError, match="`max_attempts` is missing"):
+        dv.compare([it], [ev], now=NOW)

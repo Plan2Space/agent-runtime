@@ -18,10 +18,12 @@ Contract:
   never `consistent`. Any unexpected failure inside detection is also an error.
 - Unknown queue states are reported, never assumed equal. Unknown item kinds are
   refused. Executable store events the queue does not mirror are divergences.
-- Scope premise: the store is written through `EventStore`, which appends a
-  transition and updates a timestamp on every change. The content check therefore
-  cannot be fooled by a write. An external writer that restores the exact bytes
-  (ABA) would go unseen; that case is out of scope and is covered by quiescence (#19).
+- Scope premise: every committed write that changes a stored field changes the
+  database bytes (monotonic counters, transitions, timestamps, new rows). A write
+  that leaves every byte identical changes no state, so the content check cannot
+  miss a state change. An external writer that changes state and then restores the
+  exact bytes (ABA) would go unseen; that is out of scope and is covered by
+  quiescence (#19).
 - A consistent result is not cutover authorization. #19 gates the cutover with
   executor and bridge quiescence, which this module does not prove.
 """
@@ -170,6 +172,20 @@ def _num_field(source: Mapping[str, Any], name: str, default: float) -> float:
     return float(value)
 
 
+def _required_int(source: Mapping[str, Any], name: str) -> int:
+    """A store field that must be present. A missing value is never a default: the store
+    declares these NOT NULL, so a NULL means the database was written by something else."""
+    if source.get(name) is None:
+        raise DivergenceInputError(f"field `{name}` is missing")
+    return _int_field(source, name, 0)
+
+
+def _required_num(source: Mapping[str, Any], name: str) -> float:
+    if source.get(name) is None:
+        raise DivergenceInputError(f"field `{name}` is missing")
+    return _num_field(source, name, 0.0)
+
+
 def invalid_item(item: Mapping[str, Any]) -> str:
     """'' when the item has the fields and types the comparison uses, else the problem.
 
@@ -177,8 +193,10 @@ def invalid_item(item: Mapping[str, Any]) -> str:
     kind = item.get("kind")
     if not isinstance(kind, str) or not kind:
         return "field `kind` missing or not text"
+    if not isinstance(item.get("key"), str) or not item["key"]:
+        return "item without `key` (non-empty text)"
     if kind == "comment":
-        return ""  # comments are not mirrored; only a RUNNING comment is reported
+        return ""  # comments are not mirrored; compare() reports them, never ignores them
     if kind != "review":
         return "unsupported item kind (the detector knows only `review` and `comment`)"
     for field in ("key", "state", "event_id", "head_sha"):
@@ -231,7 +249,11 @@ def compare(
             found.append(Divergence("JSON_RUNNING", str(key),
                                     "item RUNNING in the JSON queue: drain it before cutover"))
         if item.get("kind") != "review":
-            continue  # a comment: nothing to mirror
+            if state != "RUNNING":  # RUNNING was reported above; any other state is unmirrored work
+                found.append(Divergence("UNMIRRORED_ITEM", str(key),
+                                        f"comment in state {state!r} is not mirrored and the executor may pick it: "
+                                        "the store cannot run it; decide the policy in #19"))
+            continue
 
         work = mirror_key(item)
         if work in work_seen:
@@ -301,8 +323,8 @@ def _check_budget_and_window(found: list[Divergence], key: str, state: str, item
         return
 
     json_left = max_attempts - json_attempts
-    event_max = _int_field(event, "max_attempts", max_attempts)
-    event_attempt = _int_field(event, "attempt", 0)
+    event_max = _required_int(event, "max_attempts")
+    event_attempt = _required_int(event, "attempt")
     event_left = event_max - event_attempt
     if event_left <= 0:
         found.append(Divergence("STATE_MISMATCH", key,
@@ -315,7 +337,7 @@ def _check_budget_and_window(found: list[Divergence], key: str, state: str, item
 
     retry_at = _epoch(item.get("retry_after"))
     json_ready = max(retry_at or 0.0, t_now)
-    event_ready = max(_num_field(event, "available_at", 0.0), t_now)
+    event_ready = max(_required_num(event, "available_at"), t_now)
     if event_ready < json_ready - 1:
         found.append(Divergence("STATE_MISMATCH", key,
                                 "queue waits for `retry_after` but the event is available earlier"))
@@ -485,8 +507,8 @@ def main(argv: list[str] | None = None) -> int:
             for d in found:
                 print(f"{d.code:18} {d.key}: {d.detail}")
             print(f"divergence: {len(errors)} divergence(s), {len(warnings)} warning(s)")
-    except OSError:
-        return 2  # the report could not be written: no verdict was delivered, so it is not exit 1
+    except Exception:  # noqa: BLE001 - the verdict was not delivered: an output failure is never exit 1
+        return 2
     return 0 if consistent else 1
 
 
@@ -498,7 +520,7 @@ def _report_error(as_json: bool, message: str) -> int:
                               "error": message, "divergences": [], "warnings": []}, ensure_ascii=True, indent=1))
         else:
             print(f"error: {message}")
-    except OSError:
+    except Exception:  # noqa: BLE001 - nothing more can be reported; the exit code still says input error
         pass
     return 2
 
