@@ -16,7 +16,12 @@ Contract:
   A rollback journal present means a transaction is in progress, also refused.
 - A missing, unreadable or invalid source is an error, never an empty set and
   never `consistent`. Any unexpected failure inside detection is also an error.
-- Unknown queue states are reported, never assumed equal.
+- Unknown queue states are reported, never assumed equal. Unknown item kinds are
+  refused. Executable store events the queue does not mirror are divergences.
+- Scope premise: the store is written through `EventStore`, which appends a
+  transition and updates a timestamp on every change. The content check therefore
+  cannot be fooled by a write. An external writer that restores the exact bytes
+  (ABA) would go unseen; that case is out of scope and is covered by quiescence (#19).
 - A consistent result is not cutover authorization. #19 gates the cutover with
   executor and bridge quiescence, which this module does not prove.
 """
@@ -118,8 +123,11 @@ def payload_mismatch(item: Mapping[str, Any], event: Mapping[str, Any]) -> str:
     raw = event.get("payload")
     try:
         payload = json.loads(raw) if isinstance(raw, str) else raw
-    except (ValueError, RecursionError):
+    except ValueError:
         return "payload is not JSON"
+    except RecursionError as exc:
+        # A reader limit, not a fact about the work: report an input error, never a divergence.
+        raise DivergenceInputError("event payload is nested too deeply to compare") from exc
     if not isinstance(payload, dict):
         return "event has no readable payload"
     review_id = str(item.get("event_id", ""))[len(REVIEW_PREFIX):]
@@ -169,8 +177,10 @@ def invalid_item(item: Mapping[str, Any]) -> str:
     kind = item.get("kind")
     if not isinstance(kind, str) or not kind:
         return "field `kind` missing or not text"
+    if kind == "comment":
+        return ""  # comments are not mirrored; only a RUNNING comment is reported
     if kind != "review":
-        return ""
+        return "unsupported item kind (the detector knows only `review` and `comment`)"
     for field in ("key", "state", "event_id", "head_sha"):
         if not isinstance(item.get(field), str) or not item[field]:
             return f"review without `{field}` (non-empty text)"
@@ -191,23 +201,24 @@ def compare(
     queue: list[Mapping[str, Any]],
     events: list[Mapping[str, Any]],
     *,
-    now: float | None = None,
+    now: float,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     expected: Mapping[str, frozenset[str]] = EXPECTED,
     pickable: frozenset[str] = PICKABLE,
 ) -> list[Divergence]:
-    """Compare a queue snapshot with store events. Pure: no I/O, no clock unless `now` is None."""
+    """Compare a queue snapshot with store events. Pure: no I/O and no clock; the caller passes `now`."""
     if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 0:
         raise DivergenceInputError("max_attempts must be an integer >= 0")
-    mirror = {
-        e["idempotency_key"]: e
-        for e in events
-        if e.get("producer") == MIRROR_PRODUCER and e.get("event_type") == MIRROR_EVENT_TYPE
-    }
+    mirror: dict[str, Mapping[str, Any]] = {}
+    for e in events:
+        if e.get("producer") == MIRROR_PRODUCER and e.get("event_type") == MIRROR_EVENT_TYPE:
+            if e["idempotency_key"] in mirror:
+                raise DivergenceInputError("duplicate mirror idempotency key in the store: which event is the truth is ambiguous")
+            mirror[e["idempotency_key"]] = e
     found: list[Divergence] = []
     matched: set[str] = set()
     work_seen: set[str] = set()
-    t_now = time.time() if now is None else now
+    t_now = now
 
     for n, item in enumerate(queue):
         problem = invalid_item(item)
@@ -220,7 +231,7 @@ def compare(
             found.append(Divergence("JSON_RUNNING", str(key),
                                     "item RUNNING in the JSON queue: drain it before cutover"))
         if item.get("kind") != "review":
-            continue
+            continue  # a comment: nothing to mirror
 
         work = mirror_key(item)
         if work in work_seen:
@@ -260,6 +271,15 @@ def compare(
                                     f"event {event['status']} without a queue item: could run from the store alone"))
         else:
             found.append(Divergence("ORPHAN_IN_STORE", idem, f"terminal event {event['status']} without a queue item"))
+    # Events the queue does not mirror at all. After cutover the store would run any of them that
+    # is still executable, so an executable foreign event is a divergence, not something to skip.
+    for e in events:
+        if e.get("producer") == MIRROR_PRODUCER and e.get("event_type") == MIRROR_EVENT_TYPE:
+            continue
+        if e.get("status") in EXECUTABLE_EVENT:
+            found.append(Divergence("FOREIGN_EXECUTABLE", str(e.get("idempotency_key")),
+                                    f"{e.get('event_type')} {e.get('status')} from {e.get('producer')} is not in the JSON "
+                                    "queue: the store would run it after cutover"))
     return found
 
 
@@ -429,7 +449,7 @@ def detect(queue_path: str | Path, store_path: str | Path, *, now: float | None 
         raise DivergenceInputError("queue file changed during the read (a bridge cycle wrote it): "
                                    "quiesce the bridge and retry")
     try:
-        return compare(queue, events, now=now, max_attempts=max_attempts)
+        return compare(queue, events, now=time.time() if now is None else now, max_attempts=max_attempts)
     except DivergenceInputError:
         raise
     except (ValueError, TypeError, KeyError, OverflowError, RecursionError) as exc:
@@ -456,22 +476,30 @@ def main(argv: list[str] | None = None) -> int:
     warnings = [d for d in found if d.is_warning]
     failed_on = "divergence" if errors else ("warning (strict)" if ns.strict and warnings else None)
     consistent = failed_on is None
-    if ns.json:
-        print(json.dumps({"consistent": consistent, "authorizes_cutover": False, "failed_on": failed_on,
-                          "divergences": [d.as_dict() for d in errors],
-                          "warnings": [d.as_dict() for d in warnings]}, ensure_ascii=True, indent=1))
-    else:
-        for d in found:
-            print(f"{d.code:18} {d.key}: {d.detail}")
-        print(f"divergence: {len(errors)} divergence(s), {len(warnings)} warning(s)")
+    try:
+        if ns.json:
+            print(json.dumps({"consistent": consistent, "authorizes_cutover": False, "failed_on": failed_on,
+                              "divergences": [d.as_dict() for d in errors],
+                              "warnings": [d.as_dict() for d in warnings]}, ensure_ascii=True, indent=1))
+        else:
+            for d in found:
+                print(f"{d.code:18} {d.key}: {d.detail}")
+            print(f"divergence: {len(errors)} divergence(s), {len(warnings)} warning(s)")
+    except OSError:
+        return 2  # the report could not be written: no verdict was delivered, so it is not exit 1
     return 0 if consistent else 1
 
 
 def _report_error(as_json: bool, message: str) -> int:
-    if as_json:
-        print(json.dumps({"consistent": False, "authorizes_cutover": False, "error": message}, ensure_ascii=True))
-    else:
-        print(f"error: {message}")
+    """Exit 2 with the same report schema as a normal run, so consumers never see a missing key."""
+    try:
+        if as_json:
+            print(json.dumps({"consistent": False, "authorizes_cutover": False, "failed_on": "input error",
+                              "error": message, "divergences": [], "warnings": []}, ensure_ascii=True, indent=1))
+        else:
+            print(f"error: {message}")
+    except OSError:
+        pass
     return 2
 
 

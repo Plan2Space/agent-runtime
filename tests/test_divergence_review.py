@@ -97,11 +97,63 @@ def test_deeply_nested_queue_json_is_structured_error(tmp_path):
         dv.read_queue(q)
 
 
-def test_deeply_nested_payload_is_a_payload_mismatch_not_a_crash():
+def test_deeply_nested_payload_is_an_input_error_not_a_divergence():
     it = item()
     deep = ev_for(it, payload=None)
     deep["payload"] = "[" * 100_000
-    assert codes(dv.compare([it], [deep], now=NOW)) == ["PAYLOAD_MISMATCH"]
+    with pytest.raises(dv.DivergenceInputError, match="nested too deeply"):
+        dv.compare([it], [deep], now=NOW)
+
+
+def test_unknown_item_kind_in_queue_is_refused_not_ignored(tmp_path):
+    q = tmp_path / "q.json"
+    write_queue(q, [{"kind": "implement", "key": "i1", "state": "QUEUED"}])
+    with pytest.raises(dv.DivergenceInputError, match="unsupported item kind"):
+        dv.read_queue(q)
+
+
+def test_executable_foreign_store_event_is_a_divergence():
+    foreign = {"idempotency_key": "impl:1", "producer": "coordinator", "event_type": "IMPLEMENT_REQUESTED",
+               "job_id": "pr:1", "payload": "{}", "status": "PENDING", "attempt": 0, "max_attempts": 3,
+               "available_at": NOW}
+    assert codes(dv.compare([], [foreign], now=NOW)) == ["FOREIGN_EXECUTABLE"]
+
+
+def test_non_executable_foreign_store_event_is_ignored():
+    foreign = {"idempotency_key": "impl:1", "producer": "coordinator", "event_type": "IMPLEMENT_REQUESTED",
+               "job_id": "pr:1", "payload": "{}", "status": "RECORDED", "attempt": 0, "max_attempts": 3,
+               "available_at": NOW}
+    assert dv.compare([], [foreign], now=NOW) == []
+
+
+def test_duplicate_mirror_key_in_store_is_refused_even_when_called_directly():
+    it = item()
+    with pytest.raises(dv.DivergenceInputError, match="duplicate mirror idempotency key"):
+        dv.compare([it], [ev_for(it), ev_for(it, status="DONE")], now=NOW)
+
+
+def test_error_report_keeps_the_full_schema(tmp_path, capsys):
+    q = tmp_path / "q.json"
+    q.write_text("nao e json", encoding="utf-8")
+    db = tmp_path / "events.sqlite"
+    EventStore(db)
+    assert dv.main(["--queue", str(q), "--store", str(db), "--json"]) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report["failed_on"] == "input error"
+    assert report["divergences"] == [] and report["warnings"] == []
+
+
+def test_broken_output_exits_two_not_one(tmp_path, monkeypatch):
+    it = item("QUEUED")
+    db = tmp_path / "events.sqlite"
+    make_store(db, it)
+    q = tmp_path / "queue.json"
+    q.write_text(json.dumps({"queue": [it]}), encoding="utf-8")
+
+    def broken_pipe(*a, **k):
+        raise BrokenPipeError("stdout fechado")
+    monkeypatch.setattr("builtins.print", broken_pipe)
+    assert dv.main(["--queue", str(q), "--store", str(db), "--json"]) == 2
 
 
 def test_infinite_available_at_is_structured_error():
