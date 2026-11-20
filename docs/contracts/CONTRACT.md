@@ -57,4 +57,26 @@ Garantias: reconciliação pela chave antes de todo envio; ACK só do dono do le
 
 ## Como verificar
 
-`python scripts/verify_install.py --wheel dist/agent_runtime-0.1.0-py3-none-any.whl` instala o wheel num ambiente novo, importa a superfície pública e roda a suíte de contrato contra o pacote instalado (não contra o código-fonte).
+Ambiente de verificação: dependências **fixas** em `scripts/verify-requirements.txt` (pytest 8.4.2 e dependências exatas). Nenhuma faixa de versão.
+
+```
+python -m venv venv
+venv/bin/python -m pip install -r scripts/verify-requirements.txt   # Windows: venvScriptspython.exe
+python -m pip wheel . --no-deps -w dist
+python scripts/verify_install.py --wheel dist/agent_runtime-0.1.0-py3-none-any.whl --expect-version 0.1.0
+```
+
+O que a verificação prova:
+- o wheel é instalado num ambiente novo, sem o código-fonte;
+- as chamadas usam modo isolado (`-I`): PYTHONPATH herdado, site do usuário e a pasta atual não entram;
+- o módulo importado vem do ambiente instalado, não do checkout (falha se vier do repositório);
+- a versão instalada é exatamente a esperada, e a major do contrato é a suportada;
+- a suíte de contrato, em `tests/contract/`, roda contra o pacote instalado, fora do repositório.
+
+Os testes da própria verificação (`tests/install/`) cobrem os casos negativos: versão divergente, wheel corrompido, wheel ausente, rollback com a mesma versão e PYTHONPATH vazado. Rodam no job `install-check`.
+
+## Rollback: estado
+
+**Pendente.** A prova de rollback (`--rollback-wheel`) exige duas versões publicadas de verdade. Hoje existe uma (0.1.0, ainda não tagueada). Até a segunda existir, a opção só aceita versões diferentes e não há resultado de rollback registrado.
+
+Regra de testes: `tests/contract/` usa somente a superfície listada acima. Ele é o único conjunto que a prova de rollback roda. Recursos de uma versão específica ficam em `tests/` e nunca entram na prova de rollback.
