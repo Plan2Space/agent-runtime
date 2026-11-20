@@ -22,9 +22,7 @@ class Clock:
 @pytest.fixture
 def store(tmp_path):
     clock = Clock()
-    s = EventStore(tmp_path / "events.sqlite", clock=clock)
-    s._clock_for_test = clock
-    return s
+    return EventStore(tmp_path / "events.sqlite", clock=clock)
 
 
 def mirror(store):
@@ -94,3 +92,31 @@ def test_release_blocked_never_drives_attempts_negative(store):
     ev2 = store.claim(("CORRECTION_REQUESTED",), "exec", 60)
     store.release_blocked(ev2, "segunda", retry_delay=0)
     assert store.get(ev2["id"])["attempt"] == 0
+
+
+def test_release_by_an_owner_whose_lease_expired_is_refused(tmp_path):
+    clock = Clock()
+    store = EventStore(tmp_path / "events.sqlite", clock=clock)
+    _publish(store)
+    ev = store.claim(("CORRECTION_REQUESTED",), "exec", 60)  # lease until 1060
+    clock.t = 1100.0  # the lease has expired; the token is still the one that claimed
+    with pytest.raises(LeaseLost):
+        store.release_blocked(ev, "tarde demais", retry_delay=0)
+    assert store.get(ev["id"])["status"] == "RUNNING"  # an expired owner cannot refund
+
+
+def test_attempt_never_goes_below_zero_when_the_database_says_zero(tmp_path):
+    import sqlite3
+
+    clock = Clock()
+    store = EventStore(tmp_path / "events.sqlite", clock=clock)
+    _publish(store)
+    ev = store.claim(("CORRECTION_REQUESTED",), "exec", 60)
+    db = sqlite3.connect(tmp_path / "events.sqlite")
+    try:
+        db.execute("UPDATE events SET attempt=0 WHERE id=?", (ev["id"],))  # a corrupted counter
+        db.commit()
+    finally:
+        db.close()
+    store.release_blocked(ev, "contador zerado", retry_delay=0)
+    assert store.get(ev["id"])["attempt"] == 0  # the floor holds: no -1
