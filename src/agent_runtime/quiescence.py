@@ -1,22 +1,30 @@
 """Quiescence gate: a read-only proof that no work is active (issue #19, FP-062).
 
 Generic core: each probe returns Evidence about one source at one instant. The gate is quiescent
-only when every required source is positively `idle`, every piece of evidence is fresh, and the
-store snapshot is identified. Anything else blocks, and the report says why.
+only when:
+- the store snapshot is identified (the `store` source, always, whatever `required` says),
+- every required source is positively `idle`, with fresh and well-formed evidence,
+- no source is missing, duplicated, busy or unknown, and `required` is not empty.
 
 Fail closed:
-- A probe that raises, returns no evidence, or reports an unknown status blocks.
+- A probe that raises, returns invalid evidence, or reports an unknown status blocks, and the reason
+  names the source.
 - Evidence older than its max age, or from the future, blocks.
-- A required source that was not supplied blocks. No probes at all blocks.
+- Non-finite instants, timings or offsets block. They never raise out of `evaluate`.
 - The store read refuses if the database changed during the read (see divergence.read_events).
 
 Not a proof by itself:
 - The absence of a WAL file, or two equal reads, is never taken as quiescence.
-- A lock probe takes and releases the lock byte within the call. No file content is written and
-  no file is created, but a starting process can see the lock busy for that instant.
+- Transactions a producer has open but not committed are invisible to any reader. Only the
+  producer's own lock (executor and bridge) can exclude them, which is why the lock probes exist.
+- A lock probe takes and releases the lock within the call. No file content is written and no file
+  is created, but a starting process can see the lock busy for that instant.
+- A lock released by a process that just died can read as busy for a moment on Windows. That is a
+  false busy, which fails closed.
 
-Executor-specific facts (lock file, lock byte, heartbeat file) enter through probes the caller
-builds. The core knows no executor file names. Read-only: nothing is started, stopped or killed.
+Executor-specific facts (lock file, lock byte offset, heartbeat file) enter through probes the caller
+builds. The offset is the lock owner's contract: each owner names its own byte. The core knows no
+executor file names. Read-only: nothing is started, stopped or killed.
 """
 
 from __future__ import annotations
@@ -36,10 +44,13 @@ from agent_runtime import divergence as dv
 IDLE = "idle"
 BUSY = "busy"
 UNKNOWN = "unknown"
+STORE_SOURCE = "store"
 _STATUSES = frozenset({IDLE, BUSY, UNKNOWN})
 _STORE_STATUSES = frozenset({"PENDING", "RUNNING", "DONE", "DLQ", "SUPERSEDED", "RECORDED"})
 CLOCK_SKEW_S = 1.0
-_LOCK_HELD_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN, errno.EDEADLK, 33, 36})  # POSIX and Windows lock conflicts
+# Errors that mean "another process holds the lock". Names, not numbers, so each platform's value is used.
+_LOCK_HELD_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN})
+_MAX_TS_MAGNITUDE = 1e15  # epoch seconds far beyond any real heartbeat; larger values are malformed
 
 
 @dataclass(frozen=True)
@@ -58,8 +69,9 @@ Probe = Callable[[float], Evidence]
 @dataclass(frozen=True)
 class Report:
     quiescent: bool
-    now: float
+    now: float | None
     snapshot_id: str
+    required: tuple[str, ...]
     reasons: tuple[str, ...]
     sources: tuple[Evidence, ...]
 
@@ -68,6 +80,7 @@ class Report:
             "quiescent": self.quiescent,
             "now": self.now,
             "snapshot_id": self.snapshot_id,
+            "required": list(self.required),
             "reasons": list(self.reasons),
             "sources": [
                 {"source": e.source, "status": e.status, "observed_at": e.observed_at,
@@ -77,19 +90,63 @@ class Report:
         }
 
 
+def _is_finite_real(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
+def _check_timing(max_age_s: float) -> None:
+    if not _is_finite_real(max_age_s) or max_age_s <= 0:
+        raise ValueError("max_age_s must be a finite positive number")
+
+
+def _evidence_problem(ev: object) -> str:
+    """'' when the evidence is well formed, else what is wrong (never the content)."""
+    if not isinstance(ev, Evidence):
+        return "returned no evidence"
+    if not isinstance(ev.source, str) or not ev.source:
+        return "returned evidence without a source"
+    if not isinstance(ev.status, str) or ev.status not in _STATUSES:
+        return "returned an unknown status"
+    if not _is_finite_real(ev.observed_at) or not _is_finite_real(ev.max_age_s) or ev.max_age_s <= 0:
+        return "returned non-finite or invalid timing"
+    if not isinstance(ev.snapshot_id, str):
+        return "returned an invalid snapshot id"
+    return ""
+
+
 def evaluate(probes: Sequence[Probe], *, now: float, required: frozenset[str]) -> Report:
-    """Run every probe at `now` and decide. Never raises for a source problem: it blocks instead."""
-    evidences: list[Evidence] = []
+    """Run every probe at `now` and decide. Never raises for a source or input problem: it blocks instead."""
+    required_sorted = tuple(sorted(required))
+    if not _is_finite_real(now):
+        return Report(False, None, "", required_sorted, ("unknown: evaluation instant is not a finite number",), ())
     reasons: list[str] = []
+    if not required:
+        reasons.append("unknown: no required sources declared")
+    if not probes:
+        reasons.append("unknown: no evidence supplied")
+
+    evidences: list[Evidence] = []
+    seen: set[str] = set()
     for probe in probes:
+        source = getattr(probe, "source", getattr(probe, "__name__", "probe"))
         try:
             ev = probe(now)
+            problem = _evidence_problem(ev)
         except Exception as exc:  # noqa: BLE001 - fail closed: a probe that cannot answer blocks
-            reasons.append(f"unknown: probe raised {type(exc).__name__}")
+            reasons.append(f"unknown: {source} probe raised {type(exc).__name__}")
             continue
-        if not isinstance(ev, Evidence) or ev.status not in _STATUSES:
-            reasons.append("unknown: probe returned no valid evidence")
+        if problem:
+            reasons.append(f"unknown: {source} {problem}")
             continue
+        if ev.source in seen:
+            reasons.append(f"unknown: duplicate evidence for source {ev.source}")
+            continue
+        seen.add(ev.source)
         evidences.append(ev)
         age = now - ev.observed_at
         if age < -CLOCK_SKEW_S:
@@ -101,56 +158,60 @@ def evaluate(probes: Sequence[Probe], *, now: float, required: frozenset[str]) -
         elif ev.status == BUSY:
             reasons.append(f"busy: {ev.source}: {ev.detail}")
 
-    if not evidences:
-        reasons.append("unknown: no evidence supplied")
-    seen = {e.source for e in evidences}
     for name in sorted(required - seen):
         reasons.append(f"unknown: required source {name} missing")
-
-    store = next((e for e in evidences if e.snapshot_id), None)
-    if store is None and "store" in required:
+    store = next((e for e in evidences if e.source == STORE_SOURCE and e.snapshot_id), None)
+    if store is None:
         reasons.append("unknown: store snapshot not identified")
     snapshot_id = store.snapshot_id if store is not None else ""
-    return Report(quiescent=not reasons, now=now, snapshot_id=snapshot_id,
+    return Report(quiescent=not reasons, now=now, snapshot_id=snapshot_id, required=required_sorted,
                   reasons=tuple(reasons), sources=tuple(evidences))
 
 
-def store_probe(store_path: str | Path, *, name: str = "store", require_drained: bool = True,
-                max_age_s: float = 60.0) -> Probe:
-    """Evidence from every event of the store, not only the JSON mirror.
+def _tag(probe: Probe, source: str) -> Probe:
+    probe.source = source  # type: ignore[attr-defined]  # read by evaluate() to name the source in reasons
+    return probe
+
+
+def store_probe(store_path: str | Path, *, require_drained: bool = True, max_age_s: float = 60.0) -> Probe:
+    """Evidence from every event of the store, not only the JSON mirror. Always named `store`.
 
     RUNNING events (live or expired lease) are busy: a live lease is work in progress and an expired
     one is work the reaper has yet to resolve. PENDING events are busy when the store must be drained.
     Unknown statuses are unknown. The snapshot id is a hash of the exact rows that were read."""
+    _check_timing(max_age_s)
     p = Path(store_path)
 
     def probe(now: float) -> Evidence:
         if not p.is_file():
-            return Evidence(name, UNKNOWN, now, max_age_s, "event store missing")
+            return Evidence(STORE_SOURCE, UNKNOWN, now, max_age_s, "event store missing")
         try:
             events = dv.read_events(p)
         except dv.DivergenceInputError as exc:
-            return Evidence(name, UNKNOWN, now, max_age_s, f"store unreadable: {exc}")
+            return Evidence(STORE_SOURCE, UNKNOWN, now, max_age_s, f"store unreadable: {exc}")
         unknown = sorted({str(e.get("status")) for e in events} - _STORE_STATUSES)
         if unknown:
-            return Evidence(name, UNKNOWN, now, max_age_s, f"unknown event status: {unknown}")
+            return Evidence(STORE_SOURCE, UNKNOWN, now, max_age_s, f"unknown event status: {unknown}")
         snapshot = hashlib.sha256(json.dumps(events, sort_keys=True, default=str).encode("utf-8")).hexdigest()
         running = [e for e in events if e["status"] == "RUNNING"]
         live = sum(1 for e in running if (e.get("lease_until") or 0) > now)
         pending = sum(1 for e in events if e["status"] == "PENDING")
         if running:
-            return Evidence(name, BUSY, now, max_age_s,
+            return Evidence(STORE_SOURCE, BUSY, now, max_age_s,
                             f"{len(running)} RUNNING event(s): {live} with live lease, {len(running) - live} expired",
                             snapshot)
         if require_drained and pending:
-            return Evidence(name, BUSY, now, max_age_s, f"{pending} PENDING event(s) not drained", snapshot)
-        return Evidence(name, IDLE, now, max_age_s, f"{len(events)} event(s), none active", snapshot)
+            return Evidence(STORE_SOURCE, BUSY, now, max_age_s, f"{pending} PENDING event(s) not drained", snapshot)
+        return Evidence(STORE_SOURCE, IDLE, now, max_age_s, f"{len(events)} event(s), none active", snapshot)
 
-    return probe
+    return _tag(probe, STORE_SOURCE)
 
 
 def _byte_held(fd: int, pos: int) -> bool:
-    """Another process holds the lock? Takes and releases it; writes nothing to the file."""
+    """Another process holds the lock? Takes and releases it; writes nothing to the file.
+
+    Windows: exclusive byte lock at `pos`. POSIX: exclusive flock on the whole file (`pos` unused there);
+    LOCK_EX conflicts with both shared and exclusive holders, so no holder goes unseen."""
     if os.name == "nt":
         import msvcrt
 
@@ -161,7 +222,7 @@ def _byte_held(fd: int, pos: int) -> bool:
         return False
     import fcntl
 
-    fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)  # raises BlockingIOError if an exclusive holder exists
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # raises BlockingIOError if any holder exists
     fcntl.flock(fd, fcntl.LOCK_UN)
     return False
 
@@ -169,8 +230,13 @@ def _byte_held(fd: int, pos: int) -> bool:
 def lock_probe(name: str, lock_path: str | Path, *, pos: int, max_age_s: float = 60.0) -> Probe:
     """Is the process lock free at this instant? Never creates the lock file.
 
-    A missing lock file is unknown, not idle: it cannot tell "never ran" from "cleaned up".
-    On Windows the lock is the byte `pos`; on POSIX it is the whole file (`pos` is ignored there)."""
+    `pos` is the byte the lock owner holds (Windows). Each owner names its own: the outbox lock holds
+    byte 0, the executor lock holds its own offset. A wrong offset would see a busy owner as free, so
+    the caller must pass the owner's byte, never a default. A missing lock file is unknown, not idle:
+    it cannot tell "never ran" from "cleaned up"."""
+    if isinstance(pos, bool) or not isinstance(pos, int) or pos < 0:
+        raise ValueError("pos must be a non-negative integer offset")
+    _check_timing(max_age_s)
     p = Path(lock_path)
 
     def probe(now: float) -> Evidence:
@@ -185,13 +251,13 @@ def lock_probe(name: str, lock_path: str | Path, *, pos: int, max_age_s: float =
                 _byte_held(fd, pos)
                 return Evidence(name, IDLE, now, max_age_s, "lock free at observation")
             except OSError as exc:
-                if exc.errno in _LOCK_HELD_ERRNOS or isinstance(exc, BlockingIOError):
+                if isinstance(exc, BlockingIOError) or exc.errno in _LOCK_HELD_ERRNOS:
                     return Evidence(name, BUSY, now, max_age_s, "lock held by another process")
                 return Evidence(name, UNKNOWN, now, max_age_s, f"lock state not provable ({type(exc).__name__})")
         finally:
             os.close(fd)
 
-    return probe
+    return _tag(probe, name)
 
 
 def heartbeat_probe(name: str, heartbeat_path: str | Path, *, max_age_s: float = 60.0) -> Probe:
@@ -199,6 +265,7 @@ def heartbeat_probe(name: str, heartbeat_path: str | Path, *, max_age_s: float =
 
     `running` and recent: busy. `stopped` and recent: idle (graceful stop). Anything stale, future,
     missing, unreadable or malformed is unknown: old evidence cannot prove the process stopped."""
+    _check_timing(max_age_s)
     p = Path(heartbeat_path)
 
     def probe(now: float) -> Evidence:
@@ -215,17 +282,17 @@ def heartbeat_probe(name: str, heartbeat_path: str | Path, *, max_age_s: float =
         if not isinstance(data, dict):
             return Evidence(name, UNKNOWN, now, max_age_s, "heartbeat root is not an object")
         ts, state = data.get("ts"), data.get("state")
-        if isinstance(ts, bool) or not isinstance(ts, int | float) or not math.isfinite(ts):
-            return Evidence(name, UNKNOWN, now, max_age_s, "heartbeat ts is not a finite number")
+        if not _is_finite_real(ts) or abs(float(ts)) > _MAX_TS_MAGNITUDE:
+            return Evidence(name, UNKNOWN, now, max_age_s, "heartbeat ts is not a finite, sane number")
         if state not in ("running", "stopped"):
             return Evidence(name, UNKNOWN, now, max_age_s, "heartbeat state not recognised")
-        age = now - ts
+        age = now - float(ts)
         if age < -CLOCK_SKEW_S:
             return Evidence(name, UNKNOWN, now, max_age_s, "heartbeat from the future")
         if age > max_age_s:
             return Evidence(name, UNKNOWN, now, max_age_s, f"heartbeat stale (age {int(age)}s)")
         if state == "running":
-            return Evidence(name, BUSY, now, max_age_s, "recent heartbeat: process reports running", "")
-        return Evidence(name, IDLE, now, max_age_s, "recent heartbeat: process reports stopped", "")
+            return Evidence(name, BUSY, now, max_age_s, "recent heartbeat: process reports running")
+        return Evidence(name, IDLE, now, max_age_s, "recent heartbeat: process reports stopped")
 
-    return probe
+    return _tag(probe, name)

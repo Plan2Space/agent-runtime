@@ -15,6 +15,8 @@ import subprocess
 import sys
 import textwrap
 
+import pytest
+
 from agent_runtime import divergence as dv
 from agent_runtime import quiescence as q
 from agent_runtime.event_store import EventStore
@@ -226,7 +228,7 @@ def _all_idle_probes(tmp_path):
     lock_e.write_bytes(b"\0" * 4200)
     hb = _hb(tmp_path, NOW, state="stopped")
     return [
-        q.store_probe(db, require_drained=True, name="store"),
+        q.store_probe(db, require_drained=True),
         q.lock_probe("executor_lock", lock_e, pos=4096),
         q.lock_probe("bridge_lock", lock_b, pos=4096),
         q.heartbeat_probe("executor_heartbeat", hb, max_age_s=60),
@@ -294,3 +296,171 @@ def test_evaluation_never_writes_store_or_lock_or_creates_files(tmp_path):
     q.evaluate(probes, now=NOW, required=REQUIRED)
     after = sorted((p.name, p.read_bytes()) for p in tmp_path.iterdir() if p.is_file())
     assert before == after
+
+
+# --- hardening (review of PR 49) ------------------------------------------------
+
+def test_no_store_source_blocks_even_when_every_other_source_is_idle(tmp_path):
+    # The store snapshot is mandatory for quiescence, whatever `required` says.
+    probes = _all_idle_probes(tmp_path)[1:]
+    report = q.evaluate(probes, now=NOW, required=frozenset({"executor_lock", "bridge_lock", "executor_heartbeat"}))
+    assert report.quiescent is False
+    assert any("store snapshot not identified" in r for r in report.reasons)
+
+
+def test_an_empty_required_set_is_never_quiescent(tmp_path):
+    report = q.evaluate(_all_idle_probes(tmp_path), now=NOW, required=frozenset())
+    assert report.quiescent is False
+    assert any("no required sources declared" in r for r in report.reasons)
+
+
+def test_non_finite_evaluation_instant_blocks_without_raising(tmp_path):
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        report = q.evaluate(_all_idle_probes(tmp_path), now=bad, required=REQUIRED)
+        assert report.quiescent is False
+        assert report.now is None
+
+
+def test_non_finite_evidence_timing_blocks_without_raising(tmp_path):
+    def nan_observed(now):
+        return q.Evidence(source="executor_lock", status="idle", observed_at=float("nan"),
+                          max_age_s=60.0, detail="nan")
+
+    def inf_max_age(now):
+        return q.Evidence(source="executor_lock", status="idle", observed_at=now - 1e9,
+                          max_age_s=float("inf"), detail="inf")
+
+    def none_observed(now):
+        return q.Evidence(source="executor_lock", status="idle", observed_at=None,
+                          max_age_s=60.0, detail="none")
+    for bad in (nan_observed, inf_max_age, none_observed):
+        probes = _all_idle_probes(tmp_path)
+        probes[1] = bad
+        report = q.evaluate(probes, now=NOW, required=REQUIRED)
+        assert report.quiescent is False, bad.__name__
+        assert any("executor_lock" in r for r in report.reasons)
+
+
+def test_non_finite_probe_configuration_is_rejected_at_construction(tmp_path):
+    with pytest.raises(ValueError):
+        q.store_probe(tmp_path / "x.sqlite", max_age_s=float("nan"))
+    with pytest.raises(ValueError):
+        q.heartbeat_probe("h", tmp_path / "h.json", max_age_s=float("inf"))
+    with pytest.raises(ValueError):
+        q.lock_probe("l", tmp_path / "l.lock", pos=-1)
+    with pytest.raises(ValueError):
+        q.lock_probe("l", tmp_path / "l.lock", pos=True)
+
+
+def test_missing_lock_inside_evaluate_blocks_and_names_the_source(tmp_path):
+    probes = _all_idle_probes(tmp_path)
+    probes[2] = q.lock_probe("bridge_lock", tmp_path / "absent.lock", pos=0)
+    report = q.evaluate(probes, now=NOW, required=REQUIRED)
+    assert report.quiescent is False
+    assert any("bridge_lock" in r and "unknown" in r for r in report.reasons)
+
+
+def test_lock_offset_must_match_the_owner_byte(tmp_path):
+    # The owner holds byte 0 (as the outbox lock does on Windows). Probing another byte sees it free.
+    proc, lock = _holder_at(tmp_path, "outbox", pos=0)
+    try:
+        assert q.lock_probe("outbox_lock", lock, pos=0)(NOW).status == "busy"
+        assert q.lock_probe("outbox_lock", lock, pos=4096)(NOW).status == "idle"
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_heartbeat_with_an_out_of_range_integer_is_unknown_not_an_exception(tmp_path):
+    p = tmp_path / "hb.json"
+    p.write_text('{"ts": ' + "9" * 400 + ', "state": "stopped"}', encoding="utf-8")
+    assert q.heartbeat_probe("executor_heartbeat", p, max_age_s=60)(NOW).status == "unknown"
+
+
+def test_probe_that_raises_is_named_by_its_source(tmp_path):
+    def broken(now):
+        raise RuntimeError("fonte inacessivel")
+    broken.source = "bridge_lock"
+    probes = _all_idle_probes(tmp_path)
+    probes[2] = broken
+    report = q.evaluate(probes, now=NOW, required=REQUIRED)
+    assert report.quiescent is False
+    assert any(r.startswith("unknown: bridge_lock probe raised") for r in report.reasons)
+
+
+def test_duplicate_source_is_refused(tmp_path):
+    probes = _all_idle_probes(tmp_path)
+    probes.append(q.lock_probe("executor_lock", tmp_path / "executor.lock", pos=4096))
+    report = q.evaluate(probes, now=NOW, required=REQUIRED)
+    assert report.quiescent is False
+    assert any("duplicate evidence for source executor_lock" in r for r in report.reasons)
+
+
+WRITER = textwrap.dedent("""
+    import sys, time
+    from agent_runtime.event_store import EventStore
+    db, ready = sys.argv[1], sys.argv[2]
+    s = EventStore(db)
+    s.publish("CORRECTION_REQUESTED", "k:c", "pr:9", {"pr": 9}, producer="event_bridge")
+    ev = s.claim(("CORRECTION_REQUESTED",), "writer", 60)
+    open(ready, "w").close()
+    time.sleep(3)
+    s.complete(ev, {"ok": True})
+""")
+
+
+def test_real_writer_holding_a_lease_is_never_reported_idle(tmp_path):
+    # Concurrency with a real writer process: while it holds the RUNNING lease, the store probe must
+    # never answer idle. The probing window ends well before the writer releases the lease.
+    import time
+
+    db = tmp_path / "events.sqlite"
+    EventStore(db)
+    ready = tmp_path / "writer.ready"
+    proc = subprocess.Popen([sys.executable, "-c", WRITER, str(db), str(ready)])
+    try:
+        for _ in range(500):
+            if ready.exists():
+                break
+            time.sleep(0.02)
+        assert ready.exists(), "writer did not claim"
+        probe = q.store_probe(db, require_drained=True)
+        seen = []
+        end = time.monotonic() + 1.0
+        while time.monotonic() < end:
+            seen.append(probe(time.time()).status)
+        assert "idle" not in seen
+        assert "busy" in seen  # the live lease was actually observed, not only unknowns
+    finally:
+        proc.wait(timeout=30)
+    assert q.store_probe(db, require_drained=True)(time.time()).status == "idle"  # released, drained
+
+
+HOLD_AT = textwrap.dedent("""
+    import os, sys, time
+    path, ready, pos = sys.argv[1], sys.argv[2], int(sys.argv[3])
+    fd = os.open(path, os.O_RDWR | os.O_CREAT)
+    if os.name == "nt":
+        import msvcrt
+        os.write(fd, b"\\0" * 4200)
+        os.lseek(fd, pos, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    open(ready, "w").close()
+    time.sleep(30)
+""")
+
+
+def _holder_at(tmp_path, name, *, pos):
+    lock = tmp_path / f"{name}.lock"
+    ready = tmp_path / f"{name}.ready"
+    proc = subprocess.Popen([sys.executable, "-c", HOLD_AT, str(lock), str(ready), str(pos)])
+    import time
+    for _ in range(300):
+        if ready.exists():
+            break
+        time.sleep(0.02)
+    assert ready.exists(), "holder did not start"
+    return proc, lock
