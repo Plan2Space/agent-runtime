@@ -5,12 +5,19 @@ the generic core only. Executor policy (daily cap, instance lock, pause flags)
 stays with the executor and is gated in the cutover issue (#19).
 
 Contract:
-- Reads the queue file and the SQLite database; never writes to either one.
-- The database is opened with `mode=ro`. Opening it through `EventStore` is not
-  allowed here because `EventStore._conn` runs `PRAGMA journal_mode=WAL`.
-- A missing or invalid source is an error, never an empty set. An empty queue
-  would look like agreement.
+- Reads the queue file and the SQLite database; never writes to either one and
+  never creates a file (no store, no schema, no WAL/SHM sidecar).
+- The database is not opened through `EventStore`: its `_conn` runs
+  `PRAGMA journal_mode=WAL`, which writes.
+- Snapshot: the database file set (main, -wal, -shm) is fingerprinted before and
+  after the read. A change in between means a writer committed during the read,
+  so the result is refused. Writers are not locked out by this check; it only
+  refuses to report a snapshot it cannot vouch for.
+- A missing, unreadable or invalid source is an error, never an empty set and
+  never `consistent`. An empty queue would look like agreement.
 - Unknown queue states are reported, never assumed equal.
+- A consistent result is not cutover authorization. #19 gates the cutover with
+  executor and bridge quiescence, which this module does not prove.
 """
 
 from __future__ import annotations
@@ -31,6 +38,14 @@ MIRROR_PRODUCER = "event_bridge"
 DEFAULT_MAX_ATTEMPTS = 3
 LATE_TOLERANCE_S = 60
 SQLITE_MAGIC = b"SQLite format 3\x00"
+REVIEW_PREFIX = "review:"
+REQUIRED_COLUMNS = frozenset({
+    "id", "event_type", "idempotency_key", "job_id", "producer", "payload",
+    "status", "attempt", "max_attempts", "available_at",
+})
+
+# Codes that are reported but do not make the result inconsistent (unless strict).
+WARNING_CODES = frozenset({"ORPHAN_IN_STORE"})
 
 # Queue states the executor may still pick (below the attempt budget).
 PICKABLE = frozenset({"QUEUED", "FAILED", "BLOCKED_CLI", "BLOCKED_CREDENTIALS", "BLOCKED_WORKTREE"})
@@ -66,13 +81,22 @@ class Divergence:
     key: str
     detail: str
 
+    @property
+    def is_warning(self) -> bool:
+        return self.code in WARNING_CODES
+
     def as_dict(self) -> dict[str, str]:
         return {"code": self.code, "key": self.key, "detail": self.detail}
 
 
 def mirror_key(item: Mapping[str, Any]) -> str:
-    """The idempotency key the bridge publishes for a review item."""
-    return f"review:{str(item.get('event_id', '')).split(':')[-1]}:{item.get('pr')}:{item.get('head_sha')}"
+    """The idempotency key the bridge publishes: `review:<id>:<pr>:<head_sha>`.
+
+    The `review:` prefix is removed explicitly, so an id containing ':' cannot
+    collide with another item. `invalid_item` guarantees the prefix is present."""
+    event_id = str(item.get("event_id", ""))
+    review_id = event_id.removeprefix(REVIEW_PREFIX)
+    return f"review:{review_id}:{item.get('pr')}:{item.get('head_sha')}"
 
 
 def payload_mismatch(item: Mapping[str, Any], event: Mapping[str, Any]) -> str:
@@ -88,7 +112,7 @@ def payload_mismatch(item: Mapping[str, Any], event: Mapping[str, Any]) -> str:
         return "payload is not JSON"
     if not isinstance(payload, dict):
         return "event has no readable payload"
-    review_id = str(item.get("event_id", "")).split(":")[-1]
+    review_id = str(item.get("event_id", ""))[len(REVIEW_PREFIX):]
     if event.get("job_id") != f"pr:{item.get('pr')}":
         return f"job_id {event.get('job_id')!r} != 'pr:{item.get('pr')}'"
     for field, want in (("pr", item.get("pr")), ("head_sha", item.get("head_sha")),
@@ -122,6 +146,8 @@ def invalid_item(item: Mapping[str, Any]) -> str:
     for field in ("key", "state", "event_id", "head_sha"):
         if not isinstance(item.get(field), str) or not item[field]:
             return f"review without `{field}` (non-empty text)"
+    if not item["event_id"].startswith(REVIEW_PREFIX) or len(item["event_id"]) == len(REVIEW_PREFIX):
+        return "review `event_id` without the `review:` prefix and an id"
     if not isinstance(item.get("pr"), int) or isinstance(item.get("pr"), bool):
         return "review with `pr` that is not an integer"
     retry_after = item.get("retry_after")
@@ -156,13 +182,15 @@ def compare(
         problem = invalid_item(item)
         if problem:
             raise DivergenceInputError(f"invalid queue item #{n}: {problem}")
+        key, state = item.get("key"), item.get("state")
+        # Checked before any lookup: a RUNNING item is never hidden by a payload or
+        # missing-event branch below.
+        if state == "RUNNING":
+            found.append(Divergence("JSON_RUNNING", str(key),
+                                    "item RUNNING in the JSON queue: drain it before cutover"))
         if item.get("kind") != "review":
-            if item.get("state") == "RUNNING":
-                found.append(Divergence("JSON_RUNNING", str(item.get("key")),
-                                        "non-review item RUNNING in the JSON queue: drain it before cutover"))
             continue
 
-        key, state = item["key"], item.get("state")
         event = mirror.get(mirror_key(item))
         if event is None:
             found.append(Divergence("MISSING_IN_STORE", key, f"item {state} without event {mirror_key(item)}"))
@@ -173,10 +201,6 @@ def compare(
         if wrong:
             found.append(Divergence("PAYLOAD_MISMATCH", key, f"same key but different work: {wrong}"))
             continue
-
-        if state == "RUNNING":
-            found.append(Divergence("JSON_RUNNING", key,
-                                    "item RUNNING in the JSON queue: the PENDING event would be claimable in parallel"))
 
         allowed = expected.get(state)
         if allowed is None:
@@ -243,31 +267,56 @@ def _check_budget_and_window(found: list[Divergence], key: str, state: str, item
 
 
 def read_queue(path: str | Path) -> list[dict[str, Any]]:
-    """The queue file must exist and carry an explicit `queue` list. Anything else is an error."""
+    """The queue file must exist and carry an explicit `queue` list. Anything else is an error.
+
+    A UTF-8 BOM is accepted (`utf-8-sig`). Duplicate review keys are an error: a
+    duplicate would be compared once and hide the second item."""
     p = Path(path)
-    if not p.is_file():
-        raise DivergenceInputError(f"queue file missing: {p.name}")
     try:
-        data = json.loads(p.read_bytes().decode("utf-8"))
-    except (OSError, ValueError) as exc:
+        if not p.is_file():
+            raise DivergenceInputError(f"queue file missing: {p.name}")
+        raw = p.read_bytes()
+    except OSError as exc:
         raise DivergenceInputError(f"queue file unreadable ({type(exc).__name__}): {p.name}") from exc
+    try:
+        data = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise DivergenceInputError(f"queue file is not valid JSON ({type(exc).__name__}): {p.name}") from exc
     queue = data.get("queue") if isinstance(data, dict) else None
     if not isinstance(queue, list) or any(not isinstance(i, dict) for i in queue):
         raise DivergenceInputError(f"queue file without a `queue` list of objects: {p.name}")
+    seen: set[str] = set()
     for n, item in enumerate(queue):
         problem = invalid_item(item)
         if problem:
             raise DivergenceInputError(f"invalid queue item #{n}: {problem}")
+        if item.get("kind") == "review":
+            if item["key"] in seen:
+                raise DivergenceInputError(f"duplicate review key in queue at item #{n}")
+            seen.add(item["key"])
     return queue
+
+
+def _fingerprint(path: Path) -> tuple[tuple[int, int] | None, ...]:
+    """(size, mtime_ns) of the database, its -wal and its -shm; None when absent.
+
+    Read-only: stat() only. Any commit, checkpoint or sidecar change moves at least one entry."""
+    out: list[tuple[int, int] | None] = []
+    for candidate in (path, path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")):
+        try:
+            st = candidate.stat()
+            out.append((st.st_size, st.st_mtime_ns))
+        except FileNotFoundError:
+            out.append(None)
+    return tuple(out)
 
 
 def _is_wal(path: Path) -> bool:
     """True when the database file is in WAL mode (header byte 18 == 2).
 
-    SQLite creates `-shm`/`-wal` sidecars when a WAL database is opened read-only,
-    so a WAL store is opened `immutable=1`, which takes no locks and creates nothing.
-    That is only sound when the WAL holds no frames: a non-empty `-wal` means a writer
-    is open or a crash left uncheckpointed data, and the reader refuses to guess."""
+    A WAL store is opened `immutable=1`: no locks, no `-shm` created. That reads
+    only the main file, so it is consistent only if the WAL holds no frames. A
+    non-empty `-wal` is refused, and `read_events` re-checks the fingerprint."""
     with path.open("rb") as fh:
         header = fh.read(20)
     if len(header) < 20 or header[:16] != SQLITE_MAGIC or header[18] != 2:
@@ -280,11 +329,29 @@ def _is_wal(path: Path) -> bool:
 
 
 def read_events(path: str | Path) -> list[dict[str, Any]]:
-    """Events from the store, opened read-only. Never creates the file, schema or rows."""
+    """Events from the store, read without writing, and only if the snapshot did not move.
+
+    Order: fingerprint -> WAL check -> read -> fingerprint. A commit by a writer
+    after the first fingerprint changes the sidecars or the main file, so the
+    second fingerprint differs and the result is refused."""
     p = Path(path)
-    if not p.is_file():
-        raise DivergenceInputError(f"event store missing: {p.name}")
-    uri = p.resolve().as_uri() + ("?mode=ro&immutable=1" if _is_wal(p) else "?mode=ro")
+    try:
+        if not p.is_file():
+            raise DivergenceInputError(f"event store missing: {p.name}")
+        before = _fingerprint(p)
+        wal_mode = _is_wal(p)
+        uri = p.resolve().as_uri() + ("?mode=ro&immutable=1" if wal_mode else "?mode=ro")
+        rows = _select_events(uri)
+        after = _fingerprint(p)
+    except OSError as exc:
+        raise DivergenceInputError(f"event store unreadable ({type(exc).__name__}): {p.name}") from exc
+    if before != after:
+        raise DivergenceInputError("event store changed during the read (a writer committed or checkpointed): "
+                                   "quiesce writers and retry")
+    return rows
+
+
+def _select_events(uri: str) -> list[dict[str, Any]]:
     try:
         db = sqlite3.connect(uri, uri=True, timeout=15)
     except sqlite3.Error as exc:
@@ -292,9 +359,15 @@ def read_events(path: str | Path) -> list[dict[str, Any]]:
     try:
         db.row_factory = sqlite3.Row
         try:
+            cols = {r["name"] for r in db.execute("PRAGMA table_info(events)")}
+            if not cols:
+                raise DivergenceInputError("event store has no `events` table")
+            missing = REQUIRED_COLUMNS - cols
+            if missing:
+                raise DivergenceInputError(f"event store `events` table lacks columns: {sorted(missing)}")
             return [dict(r) for r in db.execute("SELECT * FROM events ORDER BY id")]
         except sqlite3.Error as exc:
-            raise DivergenceInputError(f"event store has no readable `events` table: {exc}") from exc
+            raise DivergenceInputError(f"event store is not a readable SQLite database: {exc}") from exc
     finally:
         db.close()
 
@@ -302,32 +375,54 @@ def read_events(path: str | Path) -> list[dict[str, Any]]:
 def detect(queue_path: str | Path, store_path: str | Path, *, now: float | None = None,
            max_attempts: int = DEFAULT_MAX_ATTEMPTS) -> list[Divergence]:
     """Read both sources and compare them. Raises DivergenceInputError when either is unusable."""
+    before = _file_fingerprint(queue_path)
     queue = read_queue(queue_path)
     events = read_events(store_path)
+    if _file_fingerprint(queue_path) != before:
+        raise DivergenceInputError("queue file changed during the read (a bridge cycle wrote it): quiesce the bridge and retry")
     return compare(queue, events, now=now, max_attempts=max_attempts)
 
 
+def _file_fingerprint(path: str | Path) -> tuple[int, int]:
+    """(size, mtime_ns) of the queue file. A read-only stat(); a missing file is a structured error."""
+    p = Path(path)
+    try:
+        st = p.stat()
+    except FileNotFoundError as exc:
+        raise DivergenceInputError(f"queue file missing: {p.name}") from exc
+    except OSError as exc:
+        raise DivergenceInputError(f"queue file unreadable ({type(exc).__name__}): {p.name}") from exc
+    return st.st_size, st.st_mtime_ns
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Exit 0: consistent (warnings allowed). Exit 1: divergence. Exit 2: input error."""
     ap = argparse.ArgumentParser(description="Read-only divergence check: JSON queue vs EventStore.")
     ap.add_argument("--queue", required=True, help="path to the JSON queue file")
     ap.add_argument("--store", required=True, help="path to the SQLite EventStore")
     ap.add_argument("--json", action="store_true", help="print the report as JSON")
+    ap.add_argument("--strict", action="store_true", help="warnings (terminal orphans) also fail")
     ns = ap.parse_args(argv)
     try:
         found = detect(ns.queue, ns.store)
-    except DivergenceInputError as exc:
+    except (DivergenceInputError, OSError) as exc:
         if ns.json:
-            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=True))
+            print(json.dumps({"consistent": False, "authorizes_cutover": False, "error": str(exc)}, ensure_ascii=True))
         else:
             print(f"error: {exc}")
         return 2
+    errors = [d for d in found if not d.is_warning]
+    warnings = [d for d in found if d.is_warning]
+    consistent = not errors and not (ns.strict and warnings)
     if ns.json:
-        print(json.dumps({"ok": not found, "divergences": [d.as_dict() for d in found]}, ensure_ascii=True, indent=1))
+        print(json.dumps({"consistent": consistent, "authorizes_cutover": False,
+                          "divergences": [d.as_dict() for d in errors],
+                          "warnings": [d.as_dict() for d in warnings]}, ensure_ascii=True, indent=1))
     else:
         for d in found:
             print(f"{d.code:18} {d.key}: {d.detail}")
-        print(f"divergence: {len(found)} finding(s)")
-    return 0 if not found else 1
+        print(f"divergence: {len(errors)} divergence(s), {len(warnings)} warning(s)")
+    return 0 if consistent else 1
 
 
 if __name__ == "__main__":
