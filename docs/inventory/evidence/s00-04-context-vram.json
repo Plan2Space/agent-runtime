@@ -1,0 +1,228 @@
+{
+  "measured_at": "2026-11-20T20:02:01-0300",
+  "host": "http://127.0.0.1:11435",
+  "runs": [
+    {
+      "model": "qwen2.5-coder:14b",
+      "num_ctx": 8192,
+      "placement": {
+        "size_mib": 9942,
+        "size_vram_mib": 9942,
+        "gpu_fraction": 1.0,
+        "context_length": 8192
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 2327,
+        "free_mib": 13651,
+        "util_pct": 39
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 12541,
+        "free_mib": 3437,
+        "util_pct": 27
+      },
+      "metrics": {
+        "wall_ms": 2561.4,
+        "total_ms": 2559.1,
+        "load_ms": 2430.6,
+        "prompt_tokens": 47,
+        "prompt_tps": 607.77,
+        "eval_tokens": 4,
+        "eval_tps": 82.07,
+        "done_reason": "stop"
+      },
+      "answer_ok": true
+    },
+    {
+      "model": "qwen2.5-coder:14b",
+      "num_ctx": 16384,
+      "placement": {
+        "size_mib": 11357,
+        "size_vram_mib": 11357,
+        "gpu_fraction": 1.0,
+        "context_length": 16384
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 2326,
+        "free_mib": 13652,
+        "util_pct": 27
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 13955,
+        "free_mib": 2023,
+        "util_pct": 48
+      },
+      "metrics": {
+        "wall_ms": 2115.7,
+        "total_ms": 2103.6,
+        "load_ms": 1971.8,
+        "prompt_tokens": 47,
+        "prompt_tps": 621.13,
+        "eval_tokens": 4,
+        "eval_tps": 83.98,
+        "done_reason": "stop"
+      },
+      "answer_ok": true
+    },
+    {
+      "model": "qwen2.5-coder:14b",
+      "num_ctx": 32768,
+      "placement": {
+        "size_mib": 14992,
+        "size_vram_mib": 13913,
+        "gpu_fraction": 0.928,
+        "context_length": 32768
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 2326,
+        "free_mib": 13652,
+        "util_pct": 48
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 15821,
+        "free_mib": 157,
+        "util_pct": 52
+      },
+      "metrics": {
+        "wall_ms": 2890.8,
+        "total_ms": 2888.6,
+        "load_ms": 2727.8,
+        "prompt_tokens": 47,
+        "prompt_tps": 503.17,
+        "eval_tokens": 4,
+        "eval_tps": 62.54,
+        "done_reason": "stop"
+      },
+      "answer_ok": true
+    },
+    {
+      "model": "qwen3:14b",
+      "num_ctx": 8192,
+      "placement": {
+        "size_mib": 10003,
+        "size_vram_mib": 10003,
+        "gpu_fraction": 1.0,
+        "context_length": 8192
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 1700,
+        "free_mib": 14278,
+        "util_pct": 52
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 11997,
+        "free_mib": 3981,
+        "util_pct": 39
+      },
+      "metrics": {
+        "wall_ms": 2167.8,
+        "total_ms": 2165.7,
+        "load_ms": 1993.3,
+        "prompt_tokens": 34,
+        "prompt_tps": 340.12,
+        "eval_tokens": 4,
+        "eval_tps": 57.29,
+        "done_reason": "stop"
+      },
+      "answer_ok": true
+    },
+    {
+      "model": "qwen3:14b",
+      "num_ctx": 16384,
+      "placement": {
+        "size_mib": 11141,
+        "size_vram_mib": 11141,
+        "gpu_fraction": 1.0,
+        "context_length": 16384
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 1682,
+        "free_mib": 14296,
+        "util_pct": 39
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 13198,
+        "free_mib": 2780,
+        "util_pct": 23
+      },
+      "metrics": {
+        "wall_ms": 2421.6,
+        "total_ms": 2419.6,
+        "load_ms": 2246.9,
+        "prompt_tokens": 34,
+        "prompt_tps": 334.72,
+        "eval_tokens": 4,
+        "eval_tps": 57.77,
+        "done_reason": "stop"
+      },
+      "answer_ok": true
+    },
+    {
+      "model": "qwen3:14b",
+      "num_ctx": 32768,
+      "placement": {
+        "size_mib": 13717,
+        "size_vram_mib": 13717,
+        "gpu_fraction": 1.0,
+        "context_length": 32768
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 1745,
+        "free_mib": 14233,
+        "util_pct": 23
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 15660,
+        "free_mib": 318,
+        "util_pct": 21
+      },
+      "metrics": {
+        "wall_ms": 2430.4,
+        "total_ms": 2428.6,
+        "load_ms": 2256.6,
+        "prompt_tokens": 34,
+        "prompt_tps": 338.75,
+        "eval_tokens": 4,
+        "eval_tps": 57.72,
+        "done_reason": "stop"
+      },
+      "answer_ok": true
+    }
+  ]
+}
