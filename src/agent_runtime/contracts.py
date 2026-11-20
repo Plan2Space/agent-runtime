@@ -39,13 +39,28 @@ def _required_text(data: Mapping[str, Any], key: str) -> str:
 
 @dataclass(frozen=True)
 class JobEnvelope:
-    """One unit of work handed from a consumer to the runtime."""
+    """One unit of work handed from a consumer to the runtime.
+
+    `payload` is always coerced to a read-only mapping in `__post_init__`, so
+    direct construction (bypassing `from_dict`) cannot leave it mutable.
+
+    `__hash__` is keyed on identity fields only (not `payload`), because a
+    `MappingProxyType` has no `__hash__` of its own: the dataclass-generated
+    hash would raise `TypeError` on every call otherwise.
+    """
 
     schema_version: str
     job_id: str
     kind: str
     idempotency_key: str
     payload: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.payload, MappingProxyType):
+            object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+
+    def __hash__(self) -> int:
+        return hash((self.schema_version, self.job_id, self.kind, self.idempotency_key))
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "JobEnvelope":

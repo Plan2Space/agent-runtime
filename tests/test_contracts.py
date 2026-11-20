@@ -59,3 +59,21 @@ def test_rejects_a_non_mapping_payload():
 def test_rejects_a_non_mapping_envelope():
     with pytest.raises(ContractError, match="must be a mapping"):
         JobEnvelope.from_dict("not a dict")  # type: ignore[arg-type]
+
+
+def test_envelope_is_hashable_so_it_can_key_a_set_or_dict():
+    job = JobEnvelope.from_dict(_valid())
+    assert hash(job) == hash(job)
+    assert job in {job}
+
+
+def test_direct_construction_still_makes_payload_read_only():
+    job = JobEnvelope(
+        schema_version="1.0.0",
+        job_id="job-1",
+        kind="IMPLEMENT_REQUESTED",
+        idempotency_key="issue-123:implement:v1",
+        payload={"issue": 123},
+    )
+    with pytest.raises(TypeError):
+        job.payload["issue"] = 999  # type: ignore[index]
