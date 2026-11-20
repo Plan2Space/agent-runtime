@@ -1,0 +1,8 @@
+# Dependências FIXAS do ambiente de verificação (scripts/verify_install.py e suíte de contrato).
+# Exatas, sem faixas: a verificação tem de ser reproduzível.
+pytest==8.4.2
+iniconfig==2.3.0
+packaging==26.2
+pluggy==1.6.0
+pygments==2.20.0
+colorama==0.4.6; sys_platform == 'win32'
