@@ -34,6 +34,7 @@ import hashlib
 import json
 import math
 import os
+import stat
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +52,7 @@ CLOCK_SKEW_S = 1.0
 # Errors that mean "another process holds the lock". Names, not numbers, so each platform's value is used.
 _LOCK_HELD_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN})
 _MAX_TS_MAGNITUDE = 1e15  # epoch seconds far beyond any real heartbeat; larger values are malformed
+_MAX_LOCK_OFFSET = 2**31 - 1  # a lock byte beyond any real lock file is a configuration error
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,8 @@ def _evidence_problem(ev: object) -> str:
         return "returned non-finite or invalid timing"
     if not isinstance(ev.snapshot_id, str):
         return "returned an invalid snapshot id"
+    if not isinstance(ev.detail, str):
+        return "returned a non-text detail"
     return ""
 
 
@@ -149,10 +153,12 @@ def evaluate(probes: Sequence[Probe], *, now: float, required: frozenset[str]) -
         seen.add(ev.source)
         evidences.append(ev)
         age = now - ev.observed_at
-        if age < -CLOCK_SKEW_S:
+        if not math.isfinite(age):
+            reasons.append(f"unknown: {ev.source} evidence age is not finite")
+        elif age < -CLOCK_SKEW_S:
             reasons.append(f"unknown: {ev.source} evidence from the future")
         elif age > ev.max_age_s:
-            reasons.append(f"unknown: {ev.source} stale evidence (age {int(age)}s > max {int(ev.max_age_s)}s)")
+            reasons.append(f"unknown: {ev.source} stale evidence (age {age:.1f}s > max {ev.max_age_s:g}s)")
         elif ev.status == UNKNOWN:
             reasons.append(f"unknown: {ev.source}: {ev.detail}")
         elif ev.status == BUSY:
@@ -230,12 +236,13 @@ def _byte_held(fd: int, pos: int) -> bool:
 def lock_probe(name: str, lock_path: str | Path, *, pos: int, max_age_s: float = 60.0) -> Probe:
     """Is the process lock free at this instant? Never creates the lock file.
 
-    `pos` is the byte the lock owner holds (Windows). Each owner names its own: the outbox lock holds
-    byte 0, the executor lock holds its own offset. A wrong offset would see a busy owner as free, so
-    the caller must pass the owner's byte, never a default. A missing lock file is unknown, not idle:
-    it cannot tell "never ran" from "cleaned up"."""
-    if isinstance(pos, bool) or not isinstance(pos, int) or pos < 0:
-        raise ValueError("pos must be a non-negative integer offset")
+    `pos` is the byte the lock owner holds on Windows. Each owner names its own: the outbox lock holds
+    byte 0, the executor locks byte 0 (event_executor.py). A wrong offset would see a busy owner as free,
+    so the caller passes the owner's byte, never a default. On POSIX the owner must use flock on the whole
+    file (the executor and the outbox do); `pos` is then ignored, and a lockf/fcntl owner would be invisible.
+    A missing lock file is unknown, not idle: it cannot tell "never ran" from "cleaned up"."""
+    if isinstance(pos, bool) or not isinstance(pos, int) or not 0 <= pos <= _MAX_LOCK_OFFSET:
+        raise ValueError("pos must be a non-negative integer offset within the file-size limit")
     _check_timing(max_age_s)
     p = Path(lock_path)
 
@@ -247,6 +254,8 @@ def lock_probe(name: str, lock_path: str | Path, *, pos: int, max_age_s: float =
         except OSError as exc:
             return Evidence(name, UNKNOWN, now, max_age_s, f"lock file unreadable ({type(exc).__name__})")
         try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return Evidence(name, UNKNOWN, now, max_age_s, "lock path is not a regular file")
             try:
                 _byte_held(fd, pos)
                 return Evidence(name, IDLE, now, max_age_s, "lock free at observation")
@@ -269,6 +278,8 @@ def heartbeat_probe(name: str, heartbeat_path: str | Path, *, max_age_s: float =
     p = Path(heartbeat_path)
 
     def probe(now: float) -> Evidence:
+        if not _is_finite_real(now):
+            return Evidence(name, UNKNOWN, 0.0, max_age_s, "evaluation instant is not finite")
         try:
             raw = p.read_bytes()
         except FileNotFoundError:
@@ -290,7 +301,7 @@ def heartbeat_probe(name: str, heartbeat_path: str | Path, *, max_age_s: float =
         if age < -CLOCK_SKEW_S:
             return Evidence(name, UNKNOWN, now, max_age_s, "heartbeat from the future")
         if age > max_age_s:
-            return Evidence(name, UNKNOWN, now, max_age_s, f"heartbeat stale (age {int(age)}s)")
+            return Evidence(name, UNKNOWN, now, max_age_s, f"heartbeat stale (age {age:.1f}s)")
         if state == "running":
             return Evidence(name, BUSY, now, max_age_s, "recent heartbeat: process reports running")
         return Evidence(name, IDLE, now, max_age_s, "recent heartbeat: process reports stopped")

@@ -8,12 +8,17 @@ Contract:
 - Executor-specific facts (lock file path, heartbeat file, lock byte) enter through probes the caller
   builds. The core never knows the executor's file names.
 - Read-only: no process is started, stopped or killed; no store row, lock content or file is written.
+
+Platform: byte-offset locks are Windows semantics; flock whole-file locks are POSIX semantics. Each
+test that depends on one is skipped on the other, so the suite is honest on both.
 """
 import json
+import os
 import sqlite3
 import subprocess
 import sys
 import textwrap
+import time
 
 import pytest
 
@@ -23,6 +28,9 @@ from agent_runtime.event_store import EventStore
 
 NOW = 1_800_000_000.0
 REQUIRED = frozenset({"store", "executor_lock", "bridge_lock", "executor_heartbeat"})
+EXECUTOR_BYTE = 0  # the byte the executor locks on Windows (event_executor.py)
+BRIDGE_BYTE_FIXTURE = 4096  # fixture offset; confirm against the bridge owner when #19 integrates it
+WINDOWS = os.name == "nt"
 
 
 def _store(tmp_path, *, lease_until=None, status="PENDING", producer="event_bridge",
@@ -113,67 +121,108 @@ def test_non_empty_wal_is_unknown_even_if_the_rows_look_idle(tmp_path):
 
 # --- lock evidence: executor and bridge active ----------------------------------
 
-HOLD_LOCK = textwrap.dedent("""
+# A holder process takes the lock the way the owner does. Windows: exclusive byte lock at `pos`.
+# POSIX: flock on the whole file, LOCK_SH or LOCK_EX by `mode`.
+HOLD_AT = textwrap.dedent("""
     import os, sys, time
-    path, ready = sys.argv[1], sys.argv[2]
+    path, ready, pos = sys.argv[1], sys.argv[2], int(sys.argv[3])
+    mode = sys.argv[4] if len(sys.argv) > 4 else "ex"
     fd = os.open(path, os.O_RDWR | os.O_CREAT)
     if os.name == "nt":
         import msvcrt
         os.write(fd, b"\\0" * 4200)
-        os.lseek(fd, 4096, os.SEEK_SET)
+        os.lseek(fd, pos, os.SEEK_SET)
         msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
     else:
         import fcntl
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        fcntl.flock(fd, fcntl.LOCK_SH if mode == "sh" else fcntl.LOCK_EX)
     open(ready, "w").close()
     time.sleep(30)
 """)
 
 
-def _holder(tmp_path, name):
+def _holder_at(tmp_path, name, *, pos, mode="ex"):
     lock = tmp_path / f"{name}.lock"
     ready = tmp_path / f"{name}.ready"
-    proc = subprocess.Popen([sys.executable, "-c", HOLD_LOCK, str(lock), str(ready)])
+    proc = subprocess.Popen([sys.executable, "-c", HOLD_AT, str(lock), str(ready), str(pos), mode])
     for _ in range(300):
         if ready.exists():
             break
-        import time
         time.sleep(0.02)
     assert ready.exists(), "holder did not start"
     return proc, lock
 
 
+def _stop(proc):
+    proc.kill()
+    proc.wait()
+
+
 def test_executor_holding_its_lock_is_busy(tmp_path):
-    proc, lock = _holder(tmp_path, "executor")
+    proc, lock = _holder_at(tmp_path, "executor", pos=EXECUTOR_BYTE)
     try:
-        ev = q.lock_probe("executor_lock", lock, pos=4096)(NOW)
-        assert ev.status == "busy"
+        assert q.lock_probe("executor_lock", lock, pos=EXECUTOR_BYTE)(NOW).status == "busy"
     finally:
-        proc.kill()
-        proc.wait()
+        _stop(proc)
 
 
 def test_bridge_holding_its_lock_is_busy(tmp_path):
-    proc, lock = _holder(tmp_path, "bridge")
+    proc, lock = _holder_at(tmp_path, "bridge", pos=BRIDGE_BYTE_FIXTURE)
     try:
-        assert q.lock_probe("bridge_lock", lock, pos=4096)(NOW).status == "busy"
+        assert q.lock_probe("bridge_lock", lock, pos=BRIDGE_BYTE_FIXTURE)(NOW).status == "busy"
     finally:
-        proc.kill()
-        proc.wait()
+        _stop(proc)
+
+
+@pytest.mark.skipif(not WINDOWS, reason="byte-offset semantics are Windows locking")
+def test_lock_offset_must_match_the_owner_byte(tmp_path):
+    # The owner holds byte 0. Probing another byte sees it free: the offset is a contract, not a default.
+    proc, lock = _holder_at(tmp_path, "outbox", pos=0)
+    try:
+        assert q.lock_probe("outbox_lock", lock, pos=0)(NOW).status == "busy"
+        assert q.lock_probe("outbox_lock", lock, pos=4096)(NOW).status == "idle"
+    finally:
+        _stop(proc)
+
+
+@pytest.mark.skipif(WINDOWS, reason="POSIX flock is whole-file; the byte offset is ignored")
+def test_posix_flock_holder_is_busy_at_any_offset(tmp_path):
+    proc, lock = _holder_at(tmp_path, "executor", pos=0)
+    try:
+        assert q.lock_probe("executor_lock", lock, pos=0)(NOW).status == "busy"
+        assert q.lock_probe("executor_lock", lock, pos=4096)(NOW).status == "busy"
+    finally:
+        _stop(proc)
+
+
+@pytest.mark.skipif(WINDOWS, reason="POSIX shared-lock holder")
+def test_posix_shared_flock_holder_is_seen_as_busy(tmp_path):
+    # LOCK_EX conflicts with a shared holder too, so a LOCK_SH owner cannot go unseen.
+    proc, lock = _holder_at(tmp_path, "shared", pos=0, mode="sh")
+    try:
+        assert q.lock_probe("shared_lock", lock, pos=0)(NOW).status == "busy"
+    finally:
+        _stop(proc)
 
 
 def test_free_lock_is_idle_and_the_probe_leaves_the_file_as_it_was(tmp_path):
     lock = tmp_path / "executor.lock"
     lock.write_bytes(b"\0" * 4200)
     before = lock.read_bytes()
-    assert q.lock_probe("executor_lock", lock, pos=4096)(NOW).status == "idle"
+    assert q.lock_probe("executor_lock", lock, pos=EXECUTOR_BYTE)(NOW).status == "idle"
     assert lock.read_bytes() == before
 
 
 def test_missing_lock_file_is_unknown_and_is_not_created(tmp_path):
     lock = tmp_path / "never.lock"
-    assert q.lock_probe("executor_lock", lock, pos=4096)(NOW).status == "unknown"
+    assert q.lock_probe("executor_lock", lock, pos=EXECUTOR_BYTE)(NOW).status == "unknown"
     assert not lock.exists()
+
+
+def test_lock_path_that_is_not_a_regular_file_is_unknown(tmp_path):
+    d = tmp_path / "looks_like_a_lock"
+    d.mkdir()
+    assert q.lock_probe("executor_lock", d, pos=EXECUTOR_BYTE)(NOW).status == "unknown"
 
 
 # --- heartbeat evidence ----------------------------------------------------------
@@ -217,6 +266,17 @@ def test_missing_or_garbled_heartbeat_is_unknown(tmp_path):
     assert q.heartbeat_probe("executor_heartbeat", bad, max_age_s=60)(NOW).status == "unknown"
 
 
+def test_heartbeat_with_an_out_of_range_integer_is_unknown_not_an_exception(tmp_path):
+    p = tmp_path / "hb.json"
+    p.write_text('{"ts": ' + "9" * 400 + ', "state": "stopped"}', encoding="utf-8")
+    assert q.heartbeat_probe("executor_heartbeat", p, max_age_s=60)(NOW).status == "unknown"
+
+
+def test_heartbeat_probe_called_directly_with_infinite_now_is_unknown(tmp_path):
+    p = _hb(tmp_path, NOW - 5, state="stopped")
+    assert q.heartbeat_probe("executor_heartbeat", p, max_age_s=60)(float("inf")).status == "unknown"
+
+
 # --- evaluation: the combined verdict -------------------------------------------
 
 def _all_idle_probes(tmp_path):
@@ -229,8 +289,8 @@ def _all_idle_probes(tmp_path):
     hb = _hb(tmp_path, NOW, state="stopped")
     return [
         q.store_probe(db, require_drained=True),
-        q.lock_probe("executor_lock", lock_e, pos=4096),
-        q.lock_probe("bridge_lock", lock_b, pos=4096),
+        q.lock_probe("executor_lock", lock_e, pos=EXECUTOR_BYTE),
+        q.lock_probe("bridge_lock", lock_b, pos=BRIDGE_BYTE_FIXTURE),
         q.heartbeat_probe("executor_heartbeat", hb, max_age_s=60),
     ]
 
@@ -239,21 +299,20 @@ def test_all_sources_idle_and_fresh_is_quiescent_with_a_report(tmp_path):
     report = q.evaluate(_all_idle_probes(tmp_path), now=NOW, required=REQUIRED)
     assert report.quiescent is True
     assert list(report.reasons) == []
-    body = json.loads(json.dumps(report.to_dict()))  # serialisable and auditable
+    body = json.loads(json.dumps(report.to_dict(), allow_nan=False))  # strict JSON, auditable
     assert body["quiescent"] is True and body["snapshot_id"] and len(body["sources"]) == 4
 
 
 def test_one_busy_source_blocks_and_names_the_reason(tmp_path):
     probes = _all_idle_probes(tmp_path)
-    proc, lock = _holder(tmp_path, "executor2")
+    proc, lock = _holder_at(tmp_path, "executor2", pos=EXECUTOR_BYTE)
     try:
-        probes[1] = q.lock_probe("executor_lock", lock, pos=4096)
+        probes[1] = q.lock_probe("executor_lock", lock, pos=EXECUTOR_BYTE)
         report = q.evaluate(probes, now=NOW, required=REQUIRED)
         assert report.quiescent is False
         assert any("executor_lock" in r and "busy" in r for r in report.reasons)
     finally:
-        proc.kill()
-        proc.wait()
+        _stop(proc)
 
 
 def test_a_probe_that_raises_becomes_unknown_and_blocks_without_propagating(tmp_path):
@@ -341,6 +400,28 @@ def test_non_finite_evidence_timing_blocks_without_raising(tmp_path):
         assert any("executor_lock" in r for r in report.reasons)
 
 
+def test_extreme_finite_values_never_raise_out_of_evaluate(tmp_path):
+    # Finite inputs whose difference overflows must block with a reason, not raise OverflowError.
+    def extreme(now):
+        return q.Evidence(source="executor_lock", status="idle", observed_at=-1.7e308,
+                          max_age_s=60.0, detail="extreme")
+    probes = _all_idle_probes(tmp_path)
+    probes[1] = extreme
+    report = q.evaluate(probes, now=1.7e308, required=REQUIRED)
+    assert report.quiescent is False
+
+
+def test_non_text_detail_blocks_and_keeps_the_report_strict_json(tmp_path):
+    def bad_detail(now):
+        return q.Evidence(source="executor_lock", status="idle", observed_at=now, max_age_s=60.0,
+                          detail=float("nan"))
+    probes = _all_idle_probes(tmp_path)
+    probes[1] = bad_detail
+    report = q.evaluate(probes, now=NOW, required=REQUIRED)
+    assert report.quiescent is False
+    json.dumps(report.to_dict(), allow_nan=False)  # must not raise
+
+
 def test_non_finite_probe_configuration_is_rejected_at_construction(tmp_path):
     with pytest.raises(ValueError):
         q.store_probe(tmp_path / "x.sqlite", max_age_s=float("nan"))
@@ -350,6 +431,8 @@ def test_non_finite_probe_configuration_is_rejected_at_construction(tmp_path):
         q.lock_probe("l", tmp_path / "l.lock", pos=-1)
     with pytest.raises(ValueError):
         q.lock_probe("l", tmp_path / "l.lock", pos=True)
+    with pytest.raises(ValueError):
+        q.lock_probe("l", tmp_path / "l.lock", pos=10 ** 400)
 
 
 def test_missing_lock_inside_evaluate_blocks_and_names_the_source(tmp_path):
@@ -358,23 +441,6 @@ def test_missing_lock_inside_evaluate_blocks_and_names_the_source(tmp_path):
     report = q.evaluate(probes, now=NOW, required=REQUIRED)
     assert report.quiescent is False
     assert any("bridge_lock" in r and "unknown" in r for r in report.reasons)
-
-
-def test_lock_offset_must_match_the_owner_byte(tmp_path):
-    # The owner holds byte 0 (as the outbox lock does on Windows). Probing another byte sees it free.
-    proc, lock = _holder_at(tmp_path, "outbox", pos=0)
-    try:
-        assert q.lock_probe("outbox_lock", lock, pos=0)(NOW).status == "busy"
-        assert q.lock_probe("outbox_lock", lock, pos=4096)(NOW).status == "idle"
-    finally:
-        proc.kill()
-        proc.wait()
-
-
-def test_heartbeat_with_an_out_of_range_integer_is_unknown_not_an_exception(tmp_path):
-    p = tmp_path / "hb.json"
-    p.write_text('{"ts": ' + "9" * 400 + ', "state": "stopped"}', encoding="utf-8")
-    assert q.heartbeat_probe("executor_heartbeat", p, max_age_s=60)(NOW).status == "unknown"
 
 
 def test_probe_that_raises_is_named_by_its_source(tmp_path):
@@ -390,7 +456,7 @@ def test_probe_that_raises_is_named_by_its_source(tmp_path):
 
 def test_duplicate_source_is_refused(tmp_path):
     probes = _all_idle_probes(tmp_path)
-    probes.append(q.lock_probe("executor_lock", tmp_path / "executor.lock", pos=4096))
+    probes.append(q.lock_probe("executor_lock", tmp_path / "executor.lock", pos=EXECUTOR_BYTE))
     report = q.evaluate(probes, now=NOW, required=REQUIRED)
     assert report.quiescent is False
     assert any("duplicate evidence for source executor_lock" in r for r in report.reasons)
@@ -412,8 +478,6 @@ WRITER = textwrap.dedent("""
 def test_real_writer_holding_a_lease_is_never_reported_idle(tmp_path):
     # Concurrency with a real writer process: while it holds the RUNNING lease, the store probe must
     # never answer idle. The probing window ends well before the writer releases the lease.
-    import time
-
     db = tmp_path / "events.sqlite"
     EventStore(db)
     ready = tmp_path / "writer.ready"
@@ -434,33 +498,3 @@ def test_real_writer_holding_a_lease_is_never_reported_idle(tmp_path):
     finally:
         proc.wait(timeout=30)
     assert q.store_probe(db, require_drained=True)(time.time()).status == "idle"  # released, drained
-
-
-HOLD_AT = textwrap.dedent("""
-    import os, sys, time
-    path, ready, pos = sys.argv[1], sys.argv[2], int(sys.argv[3])
-    fd = os.open(path, os.O_RDWR | os.O_CREAT)
-    if os.name == "nt":
-        import msvcrt
-        os.write(fd, b"\\0" * 4200)
-        os.lseek(fd, pos, os.SEEK_SET)
-        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-    else:
-        import fcntl
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    open(ready, "w").close()
-    time.sleep(30)
-""")
-
-
-def _holder_at(tmp_path, name, *, pos):
-    lock = tmp_path / f"{name}.lock"
-    ready = tmp_path / f"{name}.ready"
-    proc = subprocess.Popen([sys.executable, "-c", HOLD_AT, str(lock), str(ready), str(pos)])
-    import time
-    for _ in range(300):
-        if ready.exists():
-            break
-        time.sleep(0.02)
-    assert ready.exists(), "holder did not start"
-    return proc, lock
