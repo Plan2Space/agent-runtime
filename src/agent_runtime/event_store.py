@@ -406,6 +406,19 @@ class EventStore:
                 self._record_dlq_fact(db, ev, reason, now)
             return to
 
+    def release_blocked(self, ev: dict, reason: str, retry_delay: float = 1.0) -> None:
+        """Return a claimed event to PENDING without dead-lettering it, giving back the attempt its
+        claim consumed. For BLOCKED_* outcomes (CLI, credentials, worktree): the JSON executor does not
+        count these as attempts, so the store must not count them either. Only the lease owner can
+        release; a stale owner gets LeaseLost and nothing changes."""
+        with self._tx() as db:
+            now = self.clock()
+            self._owned_update(
+                db, ev,
+                "UPDATE events SET status='PENDING', attempt=MAX(attempt-1,0), error=?, available_at=?, "
+                "lease_owner=NULL, lease_token=NULL, lease_until=0, updated_at=?",
+                (reason[:2000], now + retry_delay, now), "PENDING", f"released without attempt: {reason[:300]}", now)
+
     def supersede(self, ev: dict, reason: str) -> None:
         """Discard a claimed event that refers to an outdated artifact version."""
         with self._tx() as db:
