@@ -233,6 +233,12 @@ def compare(
             if e["idempotency_key"] in mirror:
                 raise DivergenceInputError("duplicate mirror idempotency key in the store: which event is the truth is ambiguous")
             mirror[e["idempotency_key"]] = e
+    # Required fields are checked for every mirrored event, not only where a budget is compared:
+    # a NULL must never pass just because the status branch did not read it.
+    for e in mirror.values():
+        _required_int(e, "attempt")
+        _required_int(e, "max_attempts")
+        _required_num(e, "available_at")
     found: list[Divergence] = []
     matched: set[str] = set()
     work_seen: set[str] = set()
@@ -251,8 +257,8 @@ def compare(
         if item.get("kind") != "review":
             if state != "RUNNING":  # RUNNING was reported above; any other state is unmirrored work
                 found.append(Divergence("UNMIRRORED_ITEM", str(key),
-                                        f"comment in state {state!r} is not mirrored and the executor may pick it: "
-                                        "the store cannot run it; decide the policy in #19"))
+                                        f"comment in state {state!r} is not mirrored, so the store has no record of it; "
+                                        "the comment policy is decided by the #19 gate"))
             continue
 
         work = mirror_key(item)
@@ -317,7 +323,7 @@ def _check_budget_and_window(found: list[Divergence], key: str, state: str, item
     if event["status"] == "PENDING" and not can_pick:
         found.append(Divergence("STATE_MISMATCH", key,
                                 f"item {state} with {json_attempts}/{max_attempts} attempts not pickable by the queue, "
-                                "but PENDING event is still claimable"))
+                                "but a PENDING event for it is still in the store"))
         return
     if event["status"] != "PENDING" or not can_pick:
         return
@@ -479,9 +485,14 @@ def detect(queue_path: str | Path, store_path: str | Path, *, now: float | None 
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Exit 0: consistent (warnings allowed). Exit 1: divergence. Exit 2: input error or internal failure."""
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(errors="backslashreplace")
+    """Exit 0: consistent (warnings allowed). Exit 1: divergence. Exit 2: input error, internal
+    failure or output failure. Exit 3: `--strict` and only warnings found (a policy failure,
+    deliberately not exit 1, so it is never read as a divergence)."""
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="backslashreplace")
+    except Exception:  # noqa: BLE001 - no output channel: an output failure is never exit 1
+        return 2
     ap = argparse.ArgumentParser(description="Read-only divergence check: JSON queue vs EventStore.")
     ap.add_argument("--queue", required=True, help="path to the JSON queue file")
     ap.add_argument("--store", required=True, help="path to the SQLite EventStore")
@@ -507,9 +518,12 @@ def main(argv: list[str] | None = None) -> int:
             for d in found:
                 print(f"{d.code:18} {d.key}: {d.detail}")
             print(f"divergence: {len(errors)} divergence(s), {len(warnings)} warning(s)")
+        sys.stdout.flush()  # a flush failure at shutdown would otherwise escape this block
     except Exception:  # noqa: BLE001 - the verdict was not delivered: an output failure is never exit 1
         return 2
-    return 0 if consistent else 1
+    if consistent:
+        return 0
+    return 3 if failed_on == "warning (strict)" else 1
 
 
 def _report_error(as_json: bool, message: str) -> int:

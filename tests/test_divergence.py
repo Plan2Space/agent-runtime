@@ -405,7 +405,7 @@ def test_cli_orphan_terminal_is_a_warning_exit_zero_unless_strict(tmp_path, caps
     assert dv.main(["--queue", str(q), "--store", str(db), "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["consistent"] is True and len(report["warnings"]) == 1
-    assert dv.main(["--queue", str(q), "--store", str(db), "--json", "--strict"]) == 1
+    assert dv.main(["--queue", str(q), "--store", str(db), "--json", "--strict"]) == 3
 
 
 def test_cli_missing_queue_exits_two_structured(tmp_path, capsys):

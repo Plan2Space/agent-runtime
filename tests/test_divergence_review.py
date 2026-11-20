@@ -272,7 +272,7 @@ def test_cli_strict_failure_reports_failed_on_warning(tmp_path, capsys):
         conn.close()
     q = tmp_path / "queue.json"
     write_queue(q, [it])
-    assert dv.main(["--queue", str(q), "--store", str(db), "--json", "--strict"]) == 1
+    assert dv.main(["--queue", str(q), "--store", str(db), "--json", "--strict"]) == 3
     report = json.loads(capsys.readouterr().out)
     assert report["failed_on"] == "warning (strict)" and report["divergences"] == []
 
@@ -326,6 +326,31 @@ def test_null_event_attempt_is_an_input_error_not_a_default():
     ev = ev_for(it, status="PENDING", attempt=None)
     with pytest.raises(dv.DivergenceInputError, match="`attempt` is missing"):
         dv.compare([it], [ev], now=NOW)
+
+
+def test_null_attempt_is_refused_even_when_the_status_branch_would_not_read_it():
+    it = item("FAILED", attempts=3)
+    ev = ev_for(it, status="DLQ", attempt=None)  # DLQ path never reads `attempt`: still refused
+    with pytest.raises(dv.DivergenceInputError, match="`attempt` is missing"):
+        dv.compare([it], [ev], now=NOW)
+
+
+def test_flush_failure_at_shutdown_exits_two(tmp_path, monkeypatch):
+    import sys as _sys
+
+    class FlushFails:
+        def write(self, s):
+            return len(s)
+
+        def flush(self):
+            raise BrokenPipeError("pipe fechado no shutdown")
+    it = item("QUEUED")
+    db = tmp_path / "events.sqlite"
+    make_store(db, it)
+    q = tmp_path / "queue.json"
+    q.write_text(json.dumps({"queue": [it]}), encoding="utf-8")
+    monkeypatch.setattr(_sys, "stdout", FlushFails())
+    assert dv.main(["--queue", str(q), "--store", str(db), "--json"]) == 2
 
 
 def test_null_event_max_attempts_is_an_input_error_not_a_default():
