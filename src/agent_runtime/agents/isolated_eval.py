@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from . import isolated_rpc
@@ -209,6 +209,25 @@ def norm_root(path: str | Path) -> str:
     return "/" + "/".join(s for s in p.split("/") if s and s != ".")
 
 
+def _literal_root(path: str | Path) -> str:
+    """Absolute form WITHOUT following links: what ``nt._getfullpathname`` (the child's hook) produces."""
+    p = os.path.abspath(str(path))
+    if os.name == "nt":
+        p = p.replace("\\", "/").lower()
+    return "/" + "/".join(s for s in p.split("/") if s and s != ".")
+
+
+def allowed_roots(paths: Iterable[str | Path]) -> tuple[str, ...]:
+    """Each root in its resolved form AND its literal form.
+
+    The hook judges paths without resolving junctions/symlinks, while ``Path.resolve()`` follows them. A
+    root reached through a link (uv-managed CPython: ``cpython-3.12-...`` is a junction to
+    ``cpython-3.12.13-...``) must be allowed in both spellings, or every stdlib read is refused and correct
+    code is judged a contract violation. Adding the literal form widens nothing: it names the same directory.
+    """
+    return tuple(sorted({form for p in paths for form in (norm_root(p), _literal_root(p))}))
+
+
 def pytest_invocation(test_argv: Sequence[str]) -> tuple[str, list[str]] | None:
     """(interpreter, pytest args) for a ``<python> -m pytest <args>`` command; None for anything else (fail closed)."""
     a = list(test_argv)
@@ -279,8 +298,7 @@ class IsolatedTree:
 
     def scripts(self, junit: Path, timeout_s: float) -> Path:
         src = str((self.tree / "src").resolve())
-        roots = tuple(sorted({norm_root(src), norm_root(sys.prefix), norm_root(sys.base_prefix),
-                              norm_root(sys.exec_prefix)}))
+        roots = allowed_roots([src, sys.prefix, sys.base_prefix, sys.exec_prefix])
         child = self.root / "child.py"
         child.write_text(CHILD_TEMPLATE.format(src=src, roots=roots, rpc=RPC_SOURCE, deny=DENY_EVENTS,
                                                wflags=WRITE_FLAGS, mark=ISOLATION_MARK), encoding="utf-8")
