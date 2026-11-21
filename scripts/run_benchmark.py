@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -43,11 +44,13 @@ def make_backend(name: str, seed: int):
 
 
 def git_head() -> str:
-    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True,
+                          check=False).stdout.strip()
 
 
 def dirty_paths() -> list[str]:
-    out = subprocess.run(["git", "status", "--porcelain"], cwd=REPO, capture_output=True, text=True).stdout
+    out = subprocess.run(["git", "status", "--porcelain"], cwd=REPO, capture_output=True, text=True,
+                         check=False).stdout
     return [ln[3:] for ln in out.splitlines() if ln.strip()]
 
 
@@ -77,8 +80,12 @@ def ollama_version() -> str | None:
 
 def claude_version() -> str | None:
     try:
-        return subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=30,
-                              shell=sys.platform == "win32").stdout.strip()
+        # no shell: CreateProcess runs the claude.CMD shim directly (same as agents.claude_cli)
+        exe = shutil.which("claude")
+        if not exe:
+            return None
+        return subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=30,
+                              check=False).stdout.strip()
     except Exception:  # noqa: BLE001
         return None
 
