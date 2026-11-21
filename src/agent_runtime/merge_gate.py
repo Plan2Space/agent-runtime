@@ -150,7 +150,7 @@ def review_approvals(s: PrSnapshot, pr: str, risk: str, allowed: frozenset[str])
             notes.append(f"latest review by {login} is {rv.get('state')}: no approval")
             continue
         try:
-            a = from_github_review(rv, pr=pr, risk=risk)
+            a = from_github_review(rv, pr=pr, risk=risk, approvers={risk: allowed}, author=s.author)
         except ApprovalError as exc:
             notes.append(f"review by {login} rejected: {exc}")
             continue
