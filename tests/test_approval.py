@@ -62,7 +62,7 @@ def test_failing_ci_or_invalid_evidence_blocks_even_with_approval(ci, evidence):
 def test_bot_reviews_are_ignored_and_bot_cannot_be_approver():
     review = {"state": "APPROVED", "commit_id": H1, "user": {"login": "claude[bot]", "type": "Bot"},
               "submitted_at": "t", "html_url": "https://github.com/x/y/pull/1#r"}
-    assert from_github_review(review, pr="x/y#1", risk="HIGH") is None
+    assert from_github_review(review, pr="x/y#1", risk="HIGH", approvers={"HIGH": ["claude[bot]"]}) is None
     with pytest.raises(ApprovalError):
         rec(who="claude[bot]")
 
@@ -70,9 +70,52 @@ def test_bot_reviews_are_ignored_and_bot_cannot_be_approver():
 def test_human_github_review_maps_to_record():
     review = {"state": "APPROVED", "commit_id": H1, "user": {"login": "fmodesto30", "type": "User"},
               "submitted_at": "2026-11-20T23:00:00Z", "html_url": "https://github.com/x/y/pull/1#pullrequestreview-9"}
-    r = from_github_review(review, pr="x/y#1", risk="HIGH")
+    cfg = {"HIGH": ["fmodesto30"]}
+    r = from_github_review(review, pr="x/y#1", risk="HIGH", approvers=cfg)
     assert r.head_sha == H1 and r.approver == "fmodesto30"
-    assert from_github_review({**review, "state": "COMMENTED"}, pr="x/y#1", risk="HIGH") is None
+    assert from_github_review({**review, "state": "COMMENTED"}, pr="x/y#1", risk="HIGH", approvers=cfg) is None
+
+
+def _rv(login):
+    return {"state": "APPROVED", "commit_id": H1, "user": {"login": login, "type": "User"},
+            "submitted_at": "2026-11-21T00:00:00Z", "html_url": "https://github.com/x/y/pull/1#pullrequestreview-1"}
+
+
+def test_reviewer_account_approved_on_high_is_not_an_approval():
+    # the MEDIUM reviewer-agent account never counts for HIGH, even if it is also listed under MEDIUM
+    cfg = {"MEDIUM": ["fmmodesto"], "HIGH": ["fmodesto30"]}
+    assert from_github_review(_rv("fmmodesto"), pr="x/y#1", risk="HIGH", approvers=cfg) is None
+    assert from_github_review(_rv("FMModesto"), pr="x/y#1", risk="MEDIUM", approvers=cfg).approver == "FMModesto"
+
+
+def test_review_from_a_login_outside_the_list_is_not_an_approval():
+    assert from_github_review(_rv("someone"), pr="x/y#1", risk="MEDIUM", approvers={"MEDIUM": ["fmmodesto"]}) is None
+
+
+def test_empty_or_missing_list_means_nobody_approves():
+    for cfg in ({}, {"MEDIUM": []}, {"HIGH": []}):
+        for risk in ("LOW", "MEDIUM", "HIGH"):
+            assert from_github_review(_rv("fmmodesto"), pr="x/y#1", risk=risk, approvers=cfg) is None
+
+
+def test_review_by_the_pr_author_is_not_an_approval():
+    cfg = {"MEDIUM": ["fmmodesto"]}
+    assert from_github_review(_rv("fmmodesto"), pr="x/y#1", risk="MEDIUM", approvers=cfg, author="FMMODESTO") is None
+
+
+def test_approvers_are_mandatory_fail_closed():
+    with pytest.raises(TypeError):
+        from_github_review(_rv("fmmodesto"), pr="x/y#1", risk="MEDIUM")   # no approvers -> refuse to guess
+
+
+def test_review_on_an_old_commit_does_not_count_at_head():
+    a = from_github_review(_rv("fmmodesto"), pr="Plan2Space/agent-runtime#60", risk="MEDIUM",
+                           approvers={"MEDIUM": ["fmmodesto"]})
+    a = ApprovalRecord(pr="Plan2Space/agent-runtime#60", head_sha=a.head_sha, risk="MEDIUM", approver=a.approver,
+                       approved_at=a.approved_at, source=a.source)
+    d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=H2, risk="MEDIUM", ci_state="success",
+                       evidence_valid=True, approvals=[a])
+    assert not d.eligible
 
 
 def test_record_requires_full_sha_and_github_source():
@@ -187,3 +230,8 @@ def test_approval_grammar_detector_catches_variants_the_runtime_must_never_post(
     for t in (f"APROVADO HIGH {SHA}", f"approved low {SHA[:7]}", f"x\nAprovado Medium {SHA.upper()}\ny"):
         assert contains_approval_grammar(t), t
     assert not contains_approval_grammar("approved the plan, see HIGH risk notes")
+
+
+def test_merge_gate_module_is_high_risk():
+    # the module that gives the runtime merge power can never be merged by that same power
+    assert classify_risk(["src/agent_runtime/merge_gate.py"])[0] == "HIGH"

@@ -54,6 +54,22 @@ Texto normativo: `Plan2Space/engineering-specs` `plan2space/S00-05_agent_records
 Leitor rejeita major diferente de 1 e ignora campo desconhecido. O módulo Python `agent_runtime.agents` e
 `agent_runtime.approval` ainda são internos (fora da prova de rollback) até a próxima versão MINOR do pacote.
 
+## Merge gate (S00-14) — fatos no EventStore
+
+`EVENT_TYPES` ganha `MERGE_DECISION` (adição MINOR; não consumível, status `RECORDED`). Uma linha por execução de
+`scripts/merge_gate.py` / `agent_runtime.merge_gate.run_gate`, `job_id` = `owner/repo#n`. Payload:
+`pr`, `url`, `author`, `head_sha`, `base`, `status` (`DRY_RUN_WOULD_MERGE`, `MERGED`, `WAITING_HUMAN`,
+`HIGH_HUMAN_ONLY`, `NOT_ELIGIBLE`, `HEAD_CHANGED`, `BLOCKED`, `NOT_OPEN`), `risk`, `risk_reasons`, `ci_state`,
+`checks`, `reasons`, `reason` (motivo do GitHub quando `BLOCKED`), `needs` (o que falta, ou null), `dry_run`,
+`approvers` (configuração por nível), `approval` (`approver`, `kind`, `risk`, `head_sha`, `source`, ou null),
+`decided_at`, `policy`. Um merge real grava também `PR_MERGED` (`pr`, `head_sha`, `merge_commit`, `risk`,
+`merged_by`, `approval_source`, `merged_at`).
+
+Política (Felipe, 2026-11-21): LOW + CI verde + evidência → merge pelo runtime; MEDIUM idem **e** review do GitHub
+`APPROVED` no HEAD exato por um login configurado como aprovador MEDIUM, que não seja o autor do PR e cujo review mais
+recente seja essa aprovação; HIGH → nunca pelo runtime (`HIGH_HUMAN_ONLY`), mesmo com review. Comentários não disparam
+merge. Sempre `--match-head-commit`, nunca `--admin`; dry-run por padrão. Nenhum fato contém texto de aprovação (R16).
+
 ## Fora do contrato
 
 - Módulos `_`-prefixados e qualquer caminho não listado acima.

@@ -26,7 +26,7 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 HIGH_PATTERNS = (
     "docs/contracts/*", "src/agent_runtime/contracts.py", "src/agent_runtime/event_store.py",
-    "src/agent_runtime/approval.py", "src/agent_runtime/agents/tools.py", "src/agent_runtime/agents/claude_cli.py",
+    "src/agent_runtime/approval.py", "src/agent_runtime/merge_gate.py", "src/agent_runtime/agents/tools.py", "src/agent_runtime/agents/claude_cli.py",
     "src/agent_runtime/agents/events.py", "src/agent_runtime/agents/harness.py",
     "src/agent_runtime/agents/mcp_server.py", "src/agent_runtime/outbox_publisher.py", ".github/*",
     "*tolerance*", "*geometry*", "schemas/*",
@@ -154,10 +154,30 @@ class ApprovalRecord:
         return asdict(self)
 
 
-def from_github_review(review: Mapping[str, Any], *, pr: str, risk: str) -> ApprovalRecord | None:
-    """Map a GitHub review payload to a record; None unless it is an APPROVED review by a human user."""
+def approvers_for(level: str, approvers: Mapping[str, Iterable[str]]) -> frozenset[str]:
+    """Lower-cased logins configured for exactly ``level``. No inheritance between levels: a MEDIUM approver is not a
+    HIGH approver. Missing or empty -> nobody."""
+    for key, logins in approvers.items():
+        if str(key).upper() == level:
+            return frozenset(str(x).strip().lower() for x in logins if str(x).strip())
+    return frozenset()
+
+
+def from_github_review(review: Mapping[str, Any], *, pr: str, risk: str, approvers: Mapping[str, Iterable[str]],
+                       author: str = "") -> ApprovalRecord | None:
+    """Map a GitHub review payload to a record, or None.
+
+    Counts only an APPROVED review by a human user (``type = User``) whose login is configured as an approver for
+    ``risk`` (the PR's classified level) and who is not the PR ``author``. ``approvers`` is mandatory and per level
+    (``{"MEDIUM": [...], "HIGH": [...]}``): nobody approves by default, and the reviewer-agent account configured for
+    MEDIUM never counts for HIGH. The HEAD match is checked by ``merge_decision`` (``commit_id`` -> ``head_sha``)."""
     user = review.get("user") or {}
     if review.get("state") != "APPROVED" or user.get("type") != "User":
+        return None
+    login = str(user.get("login", ""))
+    if login.lower() not in approvers_for(risk, approvers):
+        return None
+    if author and login.lower() == author.lower():
         return None
     return ApprovalRecord(pr=pr, head_sha=str(review.get("commit_id", "")), risk=risk,
                           approver=str(user.get("login", "")), approved_at=str(review.get("submitted_at", "")),
