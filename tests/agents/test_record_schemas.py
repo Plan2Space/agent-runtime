@@ -44,12 +44,12 @@ def test_every_schema_required_field_is_enforced_by_the_validator(name, validato
 def _complete(s):
     name = s["properties"]["schema"]["pattern"].split("/")[0].lstrip("^")
     if name == "agent_event":
-        return {"schema": "agent_event/1.0", "event_id": "e", "ts": "t", "run_id": "r", "task_id": "S00-11",
+        return {"schema": "agent_event/1.0", "event_id": "e", "ts": "2026-11-20T12:00:00Z", "run_id": "r", "task_id": "S00-11",
                 "agent": "qwen", "model": "m", "repo": "r", "worktree": "w", "type": "RUN_STARTED",
                 "status": "running", "attempt": 0, "max_attempts": 3, "duration_s": None, "head_sha": None,
                 "pr": None, "error": None, "tests": None, "evidence": []}
     return {"schema": "benchmark_result/1.0", "run_id": "r", "scenario": "s", "repeat": 1, "backend": "b",
-            "provider": "p", "model": "m", "base_commit": "c", "outcome": "BLOCKED", "functional_success": False,
+            "provider": "p", "model": "m", "base_commit": "a" * 40, "outcome": "BLOCKED", "functional_success": False,
             "infra_failure": False, "human_intervention": False, "attempts": 3, "duration_s": 1.0, "tool_calls": 0,
-            "tool_errors": 0, "tests_before": {}, "tests_after": None, "hidden_tests": None, "tokens": {},
+            "tool_errors": 0, "tests_before": {}, "tests_after": None, "hidden_tests": None, "tokens": {"prompt": 1, "completion": 1, "measured": True},
             "contract_violations": [], "evidence": {}}

@@ -100,6 +100,8 @@ class Harness:
     # ------------------------------------------------------------------ tests
     def run_tests(self, task: Task, wt: Path, timeout_s: float, argv: Sequence[str] | None = None) -> dict:
         b = run_bounded(list(argv or task.policy.test_argv), wt, timeout_s, scrubbed_env())
+        if b.kill_failed:  # a survivor may still be writing to the worktree: no result from it is trustworthy
+            raise _Infra(f"test process tree could not be stopped after {timeout_s}s (kill_failed)")
         out = b.stdout + "\n" + b.stderr
         return {"exit_code": b.exit_code, "timed_out": b.timed_out, "duration_s": round(b.duration_s, 3),
                 **parse_pytest_counts(b.stdout), "passed_all": b.exit_code == 0, "output_tail": out[-4000:]}
@@ -176,7 +178,8 @@ class Harness:
                 emit("ATTEMPT_STARTED", "running")
                 prompt = self._prompt(task, feedback, a)
                 ex = ToolExecutor(ctx.worktree, task.policy, tool_timeout_s=limits.tool_timeout_s, log_path=tool_log,
-                                  clock=self.clock, context={"run_id": ctx.run_id, "attempt": a})
+                                  clock=self.clock, context={"run_id": ctx.run_id, "attempt": a},
+                                  max_calls=limits.max_tool_calls, cancel=cancel)
                 t_a = time.monotonic()
                 try:
                     rec = self._attempt(backend, ex, prompt, limits, tool_log, out, ctx, a, cancel)
@@ -186,6 +189,10 @@ class Harness:
                 except BackendError as exc:
                     outcome, error = "INFRA_FAILURE", f"backend error: {exc}"
                     raise _Stop from exc
+                if rec.get("stop_reason") == "cancelled":  # do not run the tests of an interrupted attempt
+                    attempts.append({**rec, "attempt": a, "duration_s": round(time.monotonic() - t_a, 3)})
+                    outcome, error = "CANCELLED", "cancelled by operator"
+                    raise _Stop
                 for k in ("prompt", "completion"):
                     v = rec["usage"].get(k)
                     if v is None:
@@ -219,6 +226,10 @@ class Harness:
                 outcome = "SUCCESS"
         except _Stop:
             pass
+        except _Infra as exc:
+            outcome, error = "INFRA_FAILURE", str(exc)
+        except Exception as exc:  # noqa: BLE001 - any harness defect is recorded as infrastructure, never lost
+            outcome, error = "INFRA_FAILURE", f"harness error: {type(exc).__name__}: {exc}"[:500]
         finally:
             resources = sampler.stop()
         final_patch = self.diff(ctx.worktree) if ctx.worktree.exists() else ""
@@ -272,7 +283,7 @@ class Harness:
     def _attempt(self, backend, ex: ToolExecutor, prompt: str, limits: Limits, tool_log: Path, out: Path,
                  ctx: RunContext, attempt: int, cancel: Callable[[], bool]) -> dict:
         if isinstance(backend, DelegatingBackend) and not isinstance(backend, ChatBackend):
-            return self._attempt_delegated(backend, ex, prompt, limits, tool_log, out, ctx, attempt)
+            return self._attempt_delegated(backend, ex, prompt, limits, tool_log, out, ctx, attempt, cancel)
         return self._attempt_chat(backend, ex, prompt, limits, cancel)
 
     def _attempt_chat(self, backend: ChatBackend, ex: ToolExecutor, prompt: str, limits: Limits,
@@ -324,6 +335,11 @@ class Harness:
                     break
                 calls += 1
                 res = ex.execute(ToolCall(c.name, c.arguments, c.call_id))
+                if res.error_kind == "infra":
+                    raise _Infra(f"tool {c.name}: {res.output[:200]}")
+                if res.error_kind == "cancelled":
+                    stop_reason = "cancelled"
+                    break
                 messages.append({"role": "tool", "content": res.for_model(), "tool_name": c.name})
             if stop_reason:
                 break
@@ -331,16 +347,27 @@ class Harness:
                 "final_text": final_text[:2000], "usage": usage}
 
     def _attempt_delegated(self, backend: DelegatingBackend, ex: ToolExecutor, prompt: str, limits: Limits,
-                           tool_log: Path, out: Path, ctx: RunContext, attempt: int) -> dict:
+                           tool_log: Path, out: Path, ctx: RunContext, attempt: int,
+                           cancel: Callable[[], bool]) -> dict:
         policy_file = out / "policy.json"
         _write_json(policy_file, ex.policy.to_dict())
         context_file = out / f"tool_context_{attempt}.json"
         _write_json(context_file, {"run_id": ctx.run_id, "attempt": attempt})
-        before = len(_read_jsonl(tool_log))
+        before = _read_jsonl(tool_log)
         r = backend.run(system_prompt=SYSTEM_PROMPT, task_prompt=prompt, workspace=ctx.worktree, tool_log=tool_log,
                         policy_file=policy_file, limits=limits, timeout_s=limits.attempt_timeout_s,
-                        context_file=context_file)
-        calls = len(_read_jsonl(tool_log)) - before
+                        context_file=context_file, cancel=cancel)
+        new = _read_jsonl(tool_log)[len(before):]
+        calls = sum(1 for rec in new if rec.get("error_kind") != "budget")
+        budget_refused = len(new) - calls
+        if any(rec.get("error_kind") == "infra" for rec in new):
+            raise _Infra("a harness tool process tree could not be stopped (kill_failed)")
+        # S00-05 R13: these are infrastructure, never an agent attempt.
+        if r.kill_failed:
+            raise _Infra("claude CLI process tree could not be stopped (kill_failed)")
+        if r.cancelled:
+            return {"mode": "delegated_cli", "turns": r.turns, "tool_calls": calls, "stop_reason": "cancelled",
+                    "final_text": "", "usage": {"prompt": None, "completion": None}}
         if not r.timed_out and not r.raw:
             raise BackendError(f"claude CLI produced no result (exit {r.exit_code}): {r.stderr_tail[-500:]}")
         if not r.timed_out and r.raw.get("mcp_status") != "connected":
@@ -348,8 +375,10 @@ class Harness:
             raise BackendError(f"harness MCP server not connected (status={r.raw.get('mcp_status')!r}, "
                                f"launches={r.raw.get('launches')})")
         subtype = r.raw.get("subtype")
-        stop = "attempt_timeout" if r.timed_out else ("max_tool_calls" if subtype == "error_max_turns"
-                                                      else "agent_finished" if subtype == "success" else str(subtype))
+        if not r.timed_out and r.exit_code != 0 and subtype != "error_max_turns":
+            raise BackendError(f"claude CLI exited {r.exit_code} (subtype={subtype!r}): {r.stderr_tail[-300:]}")
+        stop = ("attempt_timeout" if r.timed_out else "max_tool_calls" if budget_refused or subtype == "error_max_turns"
+                else "agent_finished" if subtype == "success" else str(subtype))
         if r.raw.get("is_error") and subtype == "success":
             raise BackendError(f"claude CLI reported an error result: {r.final_text[:300]}")
         return {"mode": "delegated_cli", "turns": r.turns, "tool_calls": calls, "stop_reason": stop,
@@ -396,6 +425,10 @@ class Harness:
 
 class _Stop(Exception):
     pass
+
+
+class _Infra(Exception):
+    """Infrastructure failure detected mid-run (S00-05 R13): the run ends as INFRA_FAILURE with this message."""
 
 
 def _slim(t: Mapping[str, Any] | None) -> dict | None:

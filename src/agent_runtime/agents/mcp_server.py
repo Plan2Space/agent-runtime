@@ -46,10 +46,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--log", required=True)
     ap.add_argument("--context")
     ap.add_argument("--tool-timeout", type=float, default=120.0)
+    ap.add_argument("--max-tool-calls", type=int, default=None,
+                    help="per-attempt budget: calls beyond it are refused (error_kind=budget) and logged")
     a = ap.parse_args(argv)
     policy = ToolPolicy.from_dict(json.loads(Path(a.policy).read_text(encoding="utf-8")))
     ctx = json.loads(Path(a.context).read_text(encoding="utf-8")) if a.context else {}
-    ex = ToolExecutor(Path(a.workspace), policy, tool_timeout_s=a.tool_timeout, log_path=Path(a.log), context=ctx)
+    ex = ToolExecutor(Path(a.workspace), policy, tool_timeout_s=a.tool_timeout, log_path=Path(a.log), context=ctx,
+                      max_calls=a.max_tool_calls)
     stdin = sys.stdin.buffer
     for raw in stdin:
         line = raw.decode("utf-8", "replace").strip()

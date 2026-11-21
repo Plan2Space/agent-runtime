@@ -79,7 +79,7 @@ def test_mcp_server_speaks_stdio_jsonrpc(tmp_path):
 
 
 def _event(**over):
-    e = {"schema": "agent_event/1.0", "event_id": "e", "ts": "t", "run_id": "r", "task_id": "S00-11", "agent": "qwen",
+    e = {"schema": "agent_event/1.0", "event_id": "e", "ts": "2026-11-20T12:00:00Z", "run_id": "r", "task_id": "S00-11", "agent": "qwen",
          "model": "qwen3:14b", "repo": "fixture", "worktree": "w", "type": "RUN_STARTED", "status": "running",
          "attempt": 0, "max_attempts": 3, "duration_s": None, "head_sha": None, "pr": None, "error": None,
          "tests": None, "evidence": []}
@@ -97,9 +97,10 @@ def test_agent_event_validation_rejects_unknown_major_and_bad_fields():
 
 def test_benchmark_result_cannot_claim_success_on_infra_failure():
     base = {"schema": "benchmark_result/1.0", "run_id": "r", "scenario": "s", "backend": "b", "provider": "p",
-            "model": "m", "base_commit": "c", "outcome": "SUCCESS", "repeat": 1, "functional_success": True,
+            "model": "m", "base_commit": "a" * 40, "outcome": "SUCCESS", "repeat": 1, "functional_success": True,
             "infra_failure": False, "human_intervention": False, "attempts": 1, "duration_s": 1.0, "tool_calls": 1,
-            "tool_errors": 0, "tests_before": {}, "tests_after": {}, "hidden_tests": {}, "tokens": {},
+            "tool_errors": 0, "tests_before": {}, "tests_after": {}, "hidden_tests": {},
+            "tokens": {"prompt": 1, "completion": 1, "measured": True},
             "contract_violations": [], "evidence": {}}
     validate_benchmark_result(base)
     with pytest.raises(RecordError):

@@ -30,6 +30,21 @@ ALL_TOOLS = ("list_files", "read_file", "write_file", "replace_in_file", "run_te
 
 _SECRET_ENV = re.compile(r"(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|_KEY$|CREDENTIAL)", re.IGNORECASE)
 
+# Child processes get an explicit allowlist of system variables (S00-05 R14), never the operator's whole
+# environment: GIT_* redirects the repository, PYTHONPATH/PYTHONSTARTUP load code from outside the worktree,
+# SSH_AUTH_SOCK lends the operator's keys.
+ENV_ALLOWLIST = frozenset({
+    "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "TEMP", "TMP", "TMPDIR", "HOME",
+    "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA", "PROGRAMFILES",
+    "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE", "OS", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "PYTHONIOENCODING", "PYTHONUTF8",
+})
+
+_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³]|CONIN\$|CONOUT\$)(\..*)?$", re.IGNORECASE)
+_SHORT_NAME = re.compile(r"~\d")
+_BAD_CHARS = re.compile(r'[<>"|?*\x00-\x1f]')
+_REPARSE_POINT = 0x400  # FILE_ATTRIBUTE_REPARSE_POINT: symlink, junction, mount point
+
 
 @dataclass(frozen=True)
 class ToolPolicy:
@@ -68,10 +83,15 @@ class PolicyViolation(Exception):
     pass
 
 
-def scrubbed_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Child environment without variables that look like secrets."""
-    env = {k: v for k, v in os.environ.items() if not _SECRET_ENV.search(k)}
+def scrubbed_env(extra: Mapping[str, str] | None = None, *,
+                 source: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Child environment: only ``ENV_ALLOWLIST`` system variables, never one that looks like a secret.
+
+    ``extra`` is added verbatim by the caller (e.g. the CLI's own configuration)."""
+    src = os.environ if source is None else source
+    env = {k: v for k, v in src.items() if k.upper() in ENV_ALLOWLIST and not _SECRET_ENV.search(k)}
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["GIT_TERMINAL_PROMPT"] = "0"
     if extra:
         env.update(extra)
     return env
@@ -84,11 +104,21 @@ class Bounded:
     stdout: str
     stderr: str
     duration_s: float
+    cancelled: bool = False
+    kill_failed: bool = False   # the tree could not be confirmed dead after timeout/cancel (S00-05 R13)
+
+
+KILL_GRACE_S = 10.0
+POLL_S = 0.5
 
 
 def run_bounded(argv: Sequence[str], cwd: Path, timeout_s: float,
-                env: Mapping[str, str] | None = None, stdin_text: str | None = None) -> Bounded:
-    """Run a process with a hard wall-clock limit, killing the whole process tree on timeout."""
+                env: Mapping[str, str] | None = None, stdin_text: str | None = None,
+                cancel: Callable[[], bool] | None = None) -> Bounded:
+    """Run a process with a hard wall-clock limit; on timeout or ``cancel()`` kill the whole process tree.
+
+    If the tree cannot be confirmed dead (kill command failed, or a survivor keeps the pipes open), the
+    result says ``kill_failed`` instead of blocking forever on the pipes."""
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
     t0 = time.monotonic()
     proc = subprocess.Popen(list(argv), cwd=str(cwd), env=dict(env) if env else None,
@@ -96,25 +126,61 @@ def run_bounded(argv: Sequence[str], cwd: Path, timeout_s: float,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             encoding="utf-8", errors="replace", creationflags=flags,
                             start_new_session=sys.platform != "win32")
-    try:
-        out, err = proc.communicate(stdin_text, timeout=timeout_s)
-        return Bounded(proc.returncode, False, out, err, time.monotonic() - t0)
-    except subprocess.TimeoutExpired:
-        _kill_tree(proc)
-        out, err = proc.communicate()
-        return Bounded(None, True, out or "", err or "", time.monotonic() - t0)
-
-
-def _kill_tree(proc: subprocess.Popen) -> None:
-    if sys.platform == "win32":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                       capture_output=True, check=False)
-    else:  # pragma: no cover - exercised on Linux CI
-        import signal
+    deadline = t0 + timeout_s
+    pending_stdin = stdin_text
+    cancelled = False
+    while True:
+        step = deadline - time.monotonic()
+        if cancel is not None:
+            step = min(step, POLL_S)
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+            out, err = proc.communicate(pending_stdin, timeout=max(step, 0.01))
+            return Bounded(proc.returncode, False, out, err, time.monotonic() - t0)
+        except subprocess.TimeoutExpired:
+            pending_stdin = None  # already written by the first communicate()
+            if cancel is not None and cancel():
+                cancelled = True
+                break
+            if time.monotonic() >= deadline:
+                break
+    killed = _kill_tree(proc)
+    try:
+        out, err = proc.communicate(timeout=KILL_GRACE_S)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            out, err = proc.communicate(timeout=KILL_GRACE_S / 2)
+        except subprocess.TimeoutExpired:
+            out, err, killed = "", "", False
+    return Bounded(None, not cancelled, out or "", err or "", time.monotonic() - t0,
+                   cancelled=cancelled, kill_failed=not killed or proc.poll() is None)
+
+
+def _kill_tree(proc: subprocess.Popen) -> bool:
+    """True when the kill command succeeded or the process was already gone."""
+    if sys.platform == "win32":
+        r = subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, check=False)
+        return r.returncode == 0 or proc.poll() is not None
+    import signal  # pragma: no cover - exercised on Linux CI
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        return proc.poll() is not None
+    return True
+
+
+def _is_link(p: Path) -> bool:
+    """Symlink, junction or any other reparse point. A missing path is not a link."""
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return False
+    if p.is_symlink():
+        return True
+    return bool(getattr(st, "st_file_attributes", 0) & _REPARSE_POINT)
 
 
 def _clip(text: str, limit: int) -> str:
@@ -165,7 +231,8 @@ class ToolExecutor:
 
     def __init__(self, root: Path, policy: ToolPolicy, *, tool_timeout_s: float = 120.0,
                  log_path: Path | None = None, clock: Callable[[], float] = time.time,
-                 context: Mapping[str, Any] | None = None):
+                 context: Mapping[str, Any] | None = None, max_calls: int | None = None,
+                 cancel: Callable[[], bool] | None = None):
         self.root = Path(root).resolve()
         self.policy = policy
         self.tool_timeout_s = tool_timeout_s
@@ -173,6 +240,9 @@ class ToolExecutor:
         self.clock = clock
         self.context = dict(context or {})
         self.seq = 0
+        self.max_calls = max_calls      # tool-call budget; calls beyond it are refused with error_kind="budget"
+        self.calls = 0
+        self.cancel = cancel
 
     # -- specs ------------------------------------------------------------
     def specs(self) -> list[ToolSpec]:
@@ -185,15 +255,30 @@ class ToolExecutor:
         p = Path(rel)
         if p.is_absolute() or rel.startswith(("/", "\\")) or ":" in rel:
             raise PolicyViolation(f"absolute paths are not allowed: {rel!r}")
+        for part in rel.replace("\\", "/").split("/"):
+            if part in ("", ".", ".."):
+                continue
+            if _BAD_CHARS.search(part) or part[-1] in ". " or _RESERVED.match(part) or _SHORT_NAME.search(part):
+                raise PolicyViolation(f"path component {part!r} is not allowed (reserved, 8.3 or ambiguous name)")
         target = (self.root / p).resolve()
         try:
             rel_posix = target.relative_to(self.root).as_posix()
         except ValueError:
             raise PolicyViolation(f"path escapes the workspace: {rel!r}") from None
+        self._no_links(self.root / p)
         for pattern in deny:
             if rel_posix == pattern or fnmatch.fnmatch(rel_posix, pattern):
                 raise PolicyViolation(f"path {rel_posix!r} is denied by policy ({pattern})")
         return target
+
+    def _no_links(self, path: Path) -> None:
+        """Refuse when any existing component below the root is a symlink or a junction/reparse point."""
+        lexical = Path(os.path.normpath(path))
+        cur = self.root
+        for part in lexical.relative_to(self.root).parts if lexical.is_relative_to(self.root) else ():
+            cur = cur / part
+            if _is_link(cur):
+                raise PolicyViolation(f"path goes through a link or junction: {cur.relative_to(self.root).as_posix()!r}")
 
     # -- dispatch ---------------------------------------------------------
     def execute(self, call: ToolCall) -> ToolResult:
@@ -205,10 +290,15 @@ class ToolExecutor:
             elif call.name not in self.policy.enabled:
                 result = ToolResult(call.name, False, f"tool {call.name!r} is not allowed by policy",
                                     error_kind="policy")
+            elif self.max_calls is not None and self.calls >= self.max_calls:
+                result = ToolResult(call.name, False, f"tool-call budget exhausted ({self.max_calls} calls)",
+                                    error_kind="budget")
             elif not isinstance(call.arguments, Mapping):
+                self.calls += 1
                 result = ToolResult(call.name, False, "arguments must be an object",
                                     error_kind="invalid_arguments")
             else:
+                self.calls += 1
                 result = getattr(self, f"_t_{call.name}")(dict(call.arguments))
         except PolicyViolation as exc:
             result = ToolResult(call.name, False, str(exc), error_kind="policy")
@@ -240,13 +330,17 @@ class ToolExecutor:
         base = self._resolve(a.get("path") or ".", self.policy.read_deny) if (a.get("path") or ".") != "." else self.root
         if not base.is_dir():
             return ToolResult("list_files", False, f"not a directory: {a.get('path')}", error_kind="error")
+        found = []
+        for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+            d = Path(dirpath)
+            dirnames[:] = sorted(n for n in dirnames if not _is_link(d / n))      # never descend into a link/junction
+            found += [d / n for n in filenames if not _is_link(d / n)]
         out = []
-        for p in sorted(base.rglob("*")):
+        for p in sorted(found):
             rel = p.relative_to(self.root).as_posix()
             if rel == ".git" or rel.startswith(".git/") or "__pycache__" in rel or ".pytest_cache" in rel:
                 continue
-            if p.is_file():
-                out.append(rel)
+            out.append(rel)
             if len(out) >= 500:
                 out.append("...[truncated at 500 entries]")
                 break
@@ -263,7 +357,10 @@ class ToolExecutor:
         return ToolResult("read_file", True, _clip(numbered, self.policy.max_output_chars), {"lines": text.count("\n") + 1})
 
     def _write_target(self, rel: Any) -> Path:
-        return self._resolve(rel, self.policy.write_deny)
+        p = self._resolve(rel, self.policy.write_deny)
+        if p.is_file() and p.stat().st_nlink > 1:
+            raise PolicyViolation(f"refusing to write a file with more than one hard link: {rel!r}")
+        return p
 
     def _t_write_file(self, a: dict) -> ToolResult:
         p = self._write_target(a["path"])
@@ -292,9 +389,14 @@ class ToolExecutor:
         return ToolResult("replace_in_file", True, f"replaced 1 occurrence in {a['path']}")
 
     def _run(self, name: str, argv: Sequence[str]) -> ToolResult:
-        b = run_bounded(argv, self.root, self.tool_timeout_s, scrubbed_env())
+        b = run_bounded(argv, self.root, self.tool_timeout_s, scrubbed_env(), cancel=self.cancel)
         text = _clip((b.stdout + ("\n" + b.stderr if b.stderr.strip() else "")).strip(), self.policy.max_output_chars)
-        data = {"exit_code": b.exit_code, "timed_out": b.timed_out, "duration_s": round(b.duration_s, 3)}
+        data = {"exit_code": b.exit_code, "timed_out": b.timed_out, "duration_s": round(b.duration_s, 3),
+                "cancelled": b.cancelled, "kill_failed": b.kill_failed}
+        if b.kill_failed:
+            return ToolResult(name, False, f"process tree could not be stopped\n{text}", data, "infra")
+        if b.cancelled:
+            return ToolResult(name, False, "cancelled by operator", data, "cancelled")
         if b.timed_out:
             return ToolResult(name, False, f"timed out after {self.tool_timeout_s}s\n{text}", data, "timeout")
         return ToolResult(name, True, text, data)
@@ -317,7 +419,14 @@ class ToolExecutor:
         return self._run("run_command", argv)
 
     def _t_git_status(self, a: dict) -> ToolResult:
-        return self._run("git_status", ["git", "status", "--short"])
+        return self._git_tool("git_status", ["git", "status", "--short"])
 
     def _t_git_diff(self, a: dict) -> ToolResult:
-        return self._run("git_diff", ["git", "diff", "HEAD"])
+        return self._git_tool("git_diff", ["git", "diff", "HEAD"])
+
+    def _git_tool(self, name: str, argv: Sequence[str]) -> ToolResult:
+        """Unlike tests/commands, a read-only git query that exits != 0 did not answer: report an error."""
+        r = self._run(name, argv)
+        if r.ok and r.data.get("exit_code") != 0:
+            return ToolResult(name, False, f"git exited {r.data.get('exit_code')}\n{r.output}", r.data, "error")
+        return r

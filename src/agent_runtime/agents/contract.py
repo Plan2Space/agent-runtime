@@ -17,7 +17,7 @@ Both see the same tool specs, the same system prompt and the same step/time limi
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -137,6 +137,8 @@ class DelegatedRun:
     turns: int | None
     raw: Mapping[str, Any]
     stderr_tail: str = ""
+    cancelled: bool = False
+    kill_failed: bool = False
 
 
 @runtime_checkable
@@ -144,5 +146,6 @@ class DelegatingBackend(Protocol):
     info: BackendInfo
 
     def run(self, *, system_prompt: str, task_prompt: str, workspace: Path, tool_log: Path,
-            policy_file: Path, limits: Limits, timeout_s: float) -> DelegatedRun:
+            policy_file: Path, limits: Limits, timeout_s: float,
+            cancel: Callable[[], bool] | None = None) -> DelegatedRun:
         ...

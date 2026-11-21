@@ -18,13 +18,17 @@ import json
 import os
 import shutil
 import sys
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from .contract import BackendInfo, BackendUnavailable, DelegatedRun, Limits, Usage
-from .tools import ToolPolicy, run_bounded
+from .tools import ToolPolicy, run_bounded, scrubbed_env
 
-_DROP_ENV = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "GH_TOKEN", "GITHUB_TOKEN",
-             "ANTHROPIC_API_KEY")
+# The CLI gets the system allowlist (tools.ENV_ALLOWLIST) plus only its own configuration (S00-05 R14).
+# Its login lives in the user profile; CLAUDE_CODE_OAUTH_TOKEN is passed only when the operator set it.
+# GH_TOKEN, ANTHROPIC_API_KEY (would bill the API), CLAUDECODE/* (nested-session markers) never pass.
+CLI_PASSTHROUGH = ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+                   "NODE_EXTRA_CA_CERTS")
 
 
 def find_claude() -> str:
@@ -89,11 +93,12 @@ class ClaudeCliBackend:
                                           "reason": "claude -p does not expose sampling controls"})
 
     def run(self, *, system_prompt: str, task_prompt: str, workspace: Path, tool_log: Path,
-            policy_file: Path, limits: Limits, timeout_s: float, context_file: Path | None = None) -> DelegatedRun:
+            policy_file: Path, limits: Limits, timeout_s: float, context_file: Path | None = None,
+            cancel: Callable[[], bool] | None = None) -> DelegatedRun:
         policy = ToolPolicy.from_dict(json.loads(policy_file.read_text(encoding="utf-8")))
         server_args = ["-I", "-m", "agent_runtime.agents.mcp_server", "--workspace", str(workspace),
                        "--policy", str(policy_file), "--log", str(tool_log),
-                       "--tool-timeout", str(limits.tool_timeout_s)]
+                       "--tool-timeout", str(limits.tool_timeout_s), "--max-tool-calls", str(limits.max_tool_calls)]
         if context_file:
             server_args += ["--context", str(context_file)]
         cfg = {"mcpServers": {"harness": {"command": sys.executable, "args": server_args}}}
@@ -103,14 +108,14 @@ class ClaudeCliBackend:
         sp_path.write_text(system_prompt, encoding="utf-8", newline="\n")
         argv = build_argv(self.exe, model=self.info.model, system_prompt_file=sp_path,
                           mcp_config=cfg_path, policy=policy, limits=limits)
-        env = {**{k: v for k, v in os.environ.items() if k not in _DROP_ENV}, **CLI_ENV}
+        env = cli_env()
         launches = []
         for _ in range(MAX_LAUNCHES):
-            b = run_bounded(argv, workspace, timeout_s, env, stdin_text=task_prompt)
+            b = run_bounded(argv, workspace, timeout_s, env, stdin_text=task_prompt, cancel=cancel)
             init, res = parse_stream(b.stdout)
             launches.append({"mcp_status": init["mcp_status"], "exit_code": b.exit_code, "timed_out": b.timed_out,
-                             "turns": res.get("num_turns")})
-            if init["mcp_status"] == "connected" or b.timed_out:
+                             "turns": res.get("num_turns"), "cancelled": b.cancelled, "kill_failed": b.kill_failed})
+            if init["mcp_status"] == "connected" or b.timed_out or b.cancelled or b.kill_failed:
                 break
         res = {**res, "mcp_status": init["mcp_status"], "harness_tools": init["harness_tools"],
                "launches": launches}
@@ -122,4 +127,10 @@ class ClaudeCliBackend:
         return DelegatedRun(exit_code=b.exit_code, timed_out=b.timed_out, final_text=str(res.get("result", "")),
                             usage=Usage(prompt, u.get("output_tokens") if u else None),
                             turns=res.get("num_turns"), raw={k: v for k, v in res.items() if k != "result"},
-                            stderr_tail=b.stderr[-2000:])
+                            stderr_tail=b.stderr[-2000:], cancelled=b.cancelled, kill_failed=b.kill_failed)
+
+
+def cli_env(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    src = os.environ if source is None else source
+    own = {k: src[k] for k in CLI_PASSTHROUGH if src.get(k)}
+    return scrubbed_env({**own, **CLI_ENV}, source=src)

@@ -35,6 +35,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Protocol
 
+from agent_runtime.approval import contains_approval_grammar
 from agent_runtime.event_store import EventStore, LeaseLost
 
 
@@ -164,6 +165,8 @@ def publish_one(store: EventStore, targets: Mapping[str, Target], owner: str, *,
         handler = targets.get(claimed["target"])
         if handler is None:
             raise TargetError(f"alvo desconhecido: {claimed['target']}")
+        if contains_approval_grammar(claimed["payload"]):                     # S00-05 R16: o runtime nunca forja uma aprovacao C9
+            raise TargetError("payload contem a gramatica de aprovacao humana (C9); envio recusado")
         reference, action = handler.find(entry), "RECONCILED"
         if reference is None:
             ceiling = getattr(handler, "send_timeout_s", None)

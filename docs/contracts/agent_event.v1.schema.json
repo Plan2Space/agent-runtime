@@ -9,7 +9,7 @@
   "properties": {
     "schema": {"type": "string", "pattern": "^agent_event/1\\.[0-9]+$"},
     "event_id": {"type": "string", "minLength": 1},
-    "ts": {"type": "string", "description": "ISO 8601 UTC"},
+    "ts": {"type": "string", "format": "date-time", "description": "ISO 8601 with UTC offset (Z or +00:00)"},
     "run_id": {"type": "string", "minLength": 1},
     "task_id": {"type": "string", "description": "Board Task ID, e.g. S00-11"},
     "agent": {"type": "string", "description": "backend name: claude | qwen | llama | ..."},
@@ -21,7 +21,7 @@
     "attempt": {"type": "integer", "minimum": 0},
     "max_attempts": {"type": "integer", "minimum": 1},
     "duration_s": {"type": ["number", "null"]},
-    "head_sha": {"type": ["string", "null"]},
+    "head_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
     "pr": {"type": ["string", "null"], "description": "owner/repo#n when the run belongs to a PR"},
     "error": {"type": ["string", "null"]},
     "tests": {

@@ -13,8 +13,12 @@ def rec(sha=H1, who="fmodesto30", risk="HIGH"):
                           "https://github.com/Plan2Space/agent-runtime/pull/60#pullrequestreview-1")
 
 
-def test_docs_and_tests_only_is_low():
-    assert classify_risk(["docs/x.md", "tests/test_a.py"])[0] == "LOW"
+def test_docs_and_new_tests_only_is_low():
+    # Changed on purpose (review of #60, S00-05 risk table): a test file is LOW only when it is provably NEW and
+    # does not weaken anything. Without status/patch it is MEDIUM.
+    new = {"tests/test_a.py": {"status": "added", "patch": "+def test_a():\n+    assert f() == 1"}}
+    assert classify_risk(["docs/x.md", "tests/test_a.py"], file_changes=new)[0] == "LOW"
+    assert classify_risk(["docs/x.md", "tests/test_a.py"])[0] == "MEDIUM"
 
 
 def test_contract_permission_and_ci_paths_are_high():
@@ -82,3 +86,101 @@ def test_approvals_persist_in_event_store_idempotently(tmp_path):
     s.record(rec(H2))
     got = s.approvals("Plan2Space/agent-runtime#60")
     assert sorted(a.head_sha for a in got) == [H1, H2]
+
+
+# ---------------------------------------------------------------- review of #60: risk classification (P0.2)
+from agent_runtime.approval import contains_approval_grammar, from_github_comment  # noqa: E402
+
+
+@pytest.mark.parametrize("path,info,expected", [
+    ("tests/test_a.py", {"status": "modified", "patch": "-x = 1\n+x = 2"}, "MEDIUM"),
+    ("tests/test_a.py", {"status": "removed"}, "HIGH"),
+    ("tests/test_a.py", {"status": "renamed"}, "HIGH"),
+    ("tests/test_a.py", {"status": "added", "patch": "+import pytest\n+@pytest.mark.skip\n+def test_a(): pass"}, "HIGH"),
+    ("tests/test_a.py", {"status": "added", "patch": "+@pytest.mark.xfail\n+def test_a(): pass"}, "HIGH"),
+    ("tests/test_a.py", {"status": "modified", "patch": "-    assert add(2, 3) == 5\n+    pass"}, "HIGH"),
+    ("tests/test_a.py", {"status": "modified", "patch": "+pytest.importorskip('numpy')"}, "HIGH"),
+    (r"Tests\Test_A.py", None, "MEDIUM"),          # case/separator variants are still test files, never LOW
+    ("./tests/test_a.py", None, "MEDIUM"),
+])
+def test_changes_that_weaken_or_touch_existing_tests_are_never_low(path, info, expected):
+    changes = {path: info} if info else None
+    assert classify_risk([path, "docs/x.md"], file_changes=changes)[0] == expected
+
+
+@pytest.mark.parametrize("path", ["conftest.py", "tests/conftest.py", "pytest.ini", "tox.ini", "setup.cfg",
+                                  "pyproject.toml", ".coveragerc", "noxfile.py", ".claude/settings.json",
+                                  "src/agent_runtime/agents/mcp_server.py", "src/agent_runtime/outbox_publisher.py"])
+def test_gate_configuration_and_agent_permissions_are_high(path):
+    assert classify_risk([path])[0] == "HIGH"
+
+
+def test_agent_instructions_are_at_least_medium_and_skip_word_in_source_is_not_high():
+    assert classify_risk(["CLAUDE.md"])[0] == "MEDIUM" and classify_risk(["AGENTS.md", "docs/a.md"])[0] == "MEDIUM"
+    src = {"src/agent_runtime/divergence.py": {"status": "modified", "patch": "+    skip = True"}}
+    assert classify_risk(list(src), file_changes=src)[0] == "MEDIUM"
+
+
+# ---------------------------------------------------------------- review of #60: C9 by comment (P0.3)
+SHA = "c" * 40
+
+
+def comment(body=f"APROVADO HIGH {SHA}", login="fmodesto30", utype="User", created="2026-11-21T10:00:00Z",
+            updated="2026-11-21T10:00:00Z"):
+    return {"body": body, "user": {"login": login, "type": utype}, "created_at": created, "updated_at": updated,
+            "html_url": "https://github.com/Plan2Space/agent-runtime/pull/60#issuecomment-1"}
+
+
+def test_comment_with_exact_grammar_from_an_approver_is_an_approval_at_that_sha():
+    r = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"})
+    assert (r.head_sha, r.risk, r.approver, r.kind) == (SHA, "HIGH", "fmodesto30", "comment")
+    r2 = from_github_comment(comment(body=f"Revisei.\nAPPROVED MEDIUM {SHA}\nRiscos aceitos."),
+                             pr="Plan2Space/agent-runtime#60", approvers={"FMODESTO30"})
+    assert r2.risk == "MEDIUM"
+
+
+@pytest.mark.parametrize("c", [
+    comment(login="someone-else"), comment(utype="Bot"), comment(login="helper[bot]"),
+    comment(updated="2026-11-21T11:00:00Z"),                                 # edited after creation
+    comment(created=None),
+    comment(body=f"APROVADO HIGH {SHA[:12]}"), comment(body=f"APROVADO HIGH {SHA.upper()}"),
+    comment(body=f"aprovado HIGH {SHA}"), comment(body=f"APROVADO CRITICAL {SHA}"), comment(body=f"LGTM {SHA}"),
+    comment(body=f"Não APROVADO HIGH {SHA}"),                                # not a whole line
+    comment(body=f"APROVADO HIGH {SHA}\nAPROVADO HIGH {'d' * 40}"),          # ambiguous: two lines
+])
+def test_comment_that_is_not_an_unambiguous_human_approval_is_ignored(c):
+    assert from_github_comment(c, pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"}) is None
+
+
+def test_author_can_approve_own_pr_by_comment_and_merge_follows_the_head_rule():
+    a = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"})
+    d = merge_decision(head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[a])
+    assert d.eligible and not d.automatic and d.approval.kind == "comment"
+    stale = merge_decision(head_sha="e" * 40, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[a])
+    assert not stale.eligible and any("invalidated" in r for r in stale.reasons)
+
+
+def test_approval_declaring_a_lower_risk_does_not_cover_the_pr():
+    low = from_github_comment(comment(body=f"APROVADO MEDIUM {SHA}"), pr="Plan2Space/agent-runtime#60",
+                              approvers={"fmodesto30"})
+    d = merge_decision(head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[low])
+    assert not d.eligible and any("lower than HIGH" in r for r in d.reasons)
+    ok = merge_decision(head_sha=SHA, risk="MEDIUM", ci_state="success", evidence_valid=True, approvals=[low])
+    assert ok.eligible
+
+
+def test_comment_approval_round_trips_through_the_store_and_old_records_read_as_review(tmp_path):
+    store = ApprovalStore(EventStore(tmp_path / "e.db"))
+    a = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"})
+    store.record(a)
+    store.record(rec())                         # written the old way (no explicit kind)
+    kinds = sorted(r.kind for r in store.approvals("Plan2Space/agent-runtime#60"))
+    assert kinds == ["comment", "review"]
+    legacy = {k: v for k, v in rec().to_dict().items() if k != "kind"}
+    assert ApprovalRecord(**legacy).kind == "review"
+
+
+def test_approval_grammar_detector_catches_variants_the_runtime_must_never_post():
+    for t in (f"APROVADO HIGH {SHA}", f"approved low {SHA[:7]}", f"x\nAprovado Medium {SHA.upper()}\ny"):
+        assert contains_approval_grammar(t), t
+    assert not contains_approval_grammar("approved the plan, see HIGH risk notes")
