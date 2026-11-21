@@ -98,9 +98,9 @@ class ClaudeCliBackend:
             server_args += ["--context", str(context_file)]
         cfg = {"mcpServers": {"harness": {"command": sys.executable, "args": server_args}}}
         cfg_path = tool_log.parent / "mcp_config.json"
-        cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8", newline="\n")
         sp_path = tool_log.parent / "system_prompt.txt"
-        sp_path.write_text(system_prompt, encoding="utf-8")
+        sp_path.write_text(system_prompt, encoding="utf-8", newline="\n")
         argv = build_argv(self.exe, model=self.info.model, system_prompt_file=sp_path,
                           mcp_config=cfg_path, policy=policy, limits=limits)
         env = {**{k: v for k, v in os.environ.items() if k not in _DROP_ENV}, **CLI_ENV}

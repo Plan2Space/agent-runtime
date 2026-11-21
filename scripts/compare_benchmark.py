@@ -18,6 +18,38 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 BACKENDS = ("claude", "qwen", "llama")
 
+LIMITATIONS = [
+    "- **Mesmo código para os três:** os `run_manifest.json` registram o mesmo commit do agent-runtime e o mesmo "
+    "`core_sha256` (todo `src/agent_runtime/agents/*.py` + `benchmark/scenarios/**`). Sujeira registrada em "
+    "`agent_runtime_dirty` é só saída de outros backends e docs.",
+    "- **Amostra pequena:** 3 cenários × 3 repetições. Serve para separar \"nunca/às vezes/sempre\" neste conjunto, "
+    "não para estimar taxa de sucesso geral nem declarar equivalência entre modelos.",
+    "- **Não é a mesma classe de modelo:** Claude (`claude-sonnet-5-5`, nuvem) × Qwen 14.8B Q4_K_M × Llama 8.0B Q4_K_M "
+    "locais. O resultado compara o que roda nesta máquina hoje, não famílias de modelos.",
+    "- **Sampling:** Ollama com temperatura 0.3 e seed 1001/1002/1003 por repetição, `num_ctx` 16384, Qwen com "
+    "`think=false`. O `claude -p` não expõe temperatura/seed: as repetições do Claude não são semeadas.",
+    "- **Laço:** nos modelos locais o harness conduz o laço; no Claude o CLI conduz, só com as ferramentas do harness "
+    "via MCP (`--tools \"\"`). Mesmo prompt de sistema, mesmas ferramentas, mesma política, mesmos limites.",
+    "- **Tokens:** Claude soma entrada + cache lido + cache criado (o cache barateia, mas conta como contexto); Ollama "
+    "reporta `prompt_eval_count`/`eval_count`. Custos em USD do CLI são o número informado pela assinatura, não cobrança.",
+    "- **Recursos:** GPU/RAM são do sistema inteiro. O run do Claude rodou em paralelo ao do Llama, então o máximo de "
+    "GPU na linha do Claude é o do Llama + desktop, não do Claude. Os locais rodaram um por vez.",
+    "- **s3 tem um requisito só na docstring** (commit de reserva expirada), cobrado só pelo teste oculto: mede se o "
+    "agente lê a especificação além dos testes. Os 3 FUNCTIONAL_FAILURE do Qwen corrigiram os outros 3 defeitos e "
+    "falharam exatamente nesse (reavaliado aplicando cada `changes.patch` na fixture: só "
+    "`test_commit_expired_raises_and_keeps_stock` falha, 7/8 ocultos passam).",
+    "- **Patches:** gravados com CRLF pelo `write_text` do Windows na execução; normalizados para LF depois. O "
+    "`diff.sha256` registrado foi calculado sobre o texto LF e bate com os 27 arquivos normalizados.",
+    "- **Falha do Llama 3.1 8B:** começa com tool calls nativas e passa a escrever JSON em texto chamando ferramenta "
+    "inexistente (`edit_file`) em caminho inventado; o contrato aceita só tool calling nativo, igual para todos. "
+    "Um parser de JSON em texto mudaria o contrato e não foi aplicado.",
+    "- **Execução inválida descartada (não entra na tabela):** a 1ª rodada do Claude mostrou o servidor MCP do harness "
+    "em `pending` em parte das tentativas (o modelo ficou sem ferramentas). Corrigido (conexão bloqueante + checagem do "
+    "init + falha de infra em vez de tentativa do agente) e os três backends foram re-rodados no mesmo commit.",
+    "- **Sem intervenção humana** em nenhuma execução; nenhuma solução compartilhada (worktree e fixture próprios por "
+    "backend e repetição).",
+]
+
 
 def load(name: str) -> list[dict] | None:
     p = REPO / "benchmark" / name / "metrics.json"
@@ -87,7 +119,7 @@ def main() -> int:
             bases.setdefault(r["scenario"], set()).add(r["base_commit"])
     out["same_base_commit_per_scenario"] = {s: len(v) == 1 for s, v in bases.items()}
     out["base_commits"] = {s: sorted(v) for s, v in bases.items()}
-    (REPO / "benchmark" / "comparison.json").write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    (REPO / "benchmark" / "comparison.json").write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     L = ["# Benchmark S00-11 — comparação Claude × Qwen × Llama", "",
          "Mesmo commit base por cenário: " + ", ".join(f"`{s}` {'sim' if ok else 'NÃO'}"
@@ -115,7 +147,8 @@ def main() -> int:
             cells.append(f"{p['success']}/{p['runs']} ({', '.join(p['outcomes'])})" if p else "—")
         L.append(f"| {b} | " + " | ".join(cells) + " |")
     L += ["", "## Regra de recomendação (determinística)", ""] + [f"- {x.strip()}" for x in out["rule"]]
-    (REPO / "benchmark" / "comparison.md").write_text("\n".join(L) + "\n", encoding="utf-8")
+    L += ["", "## Leitura, limitações e o que NÃO concluir", "", *LIMITATIONS]
+    (REPO / "benchmark" / "comparison.md").write_text("\n".join(L) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({b: d.get("recommendation") for b, d in out["backends"].items()}))
     return 0
 

@@ -109,8 +109,12 @@ class Harness:
         return [ln[3:] for ln in r.stdout.splitlines() if ln.strip()]
 
     def diff(self, wt: Path) -> str:
+        """Exact diff text. Captured as bytes: text-mode pipes turn CRLF into LF, which would make a
+        patch that touches line endings unappliable. Undecodable bytes survive via surrogateescape."""
         _git(["add", "-A", "--intent-to-add", "."], wt)
-        return _git(["diff", "HEAD", "--", ".", ":(exclude)**/__pycache__/**"], wt).stdout
+        r = subprocess.run(["git", "diff", "--binary", "HEAD", "--", ".", ":(exclude)**/__pycache__/**"],
+                           cwd=str(wt), capture_output=True, timeout=60, check=False)
+        return r.stdout.decode("utf-8", "surrogateescape")
 
     # ------------------------------------------------------------------ main
     def run(self, task: Task, backend: ChatBackend | DelegatingBackend, limits: Limits, ctx: RunContext,
@@ -189,11 +193,11 @@ class Harness:
                     else:
                         tokens[k] += v
                 patch = self.diff(ctx.worktree)
-                (out / "attempts" / f"attempt_{a}.patch").write_text(patch, encoding="utf-8")
+                (out / "attempts" / f"attempt_{a}.patch").write_bytes(_patch_bytes(patch))
                 prot = self.protected_changes(task, ctx.worktree)
                 tests_after = self.run_tests(task, ctx.worktree, limits.tool_timeout_s)
                 rec.update({"attempt": a, "duration_s": round(time.monotonic() - t_a, 3), "tests": _slim(tests_after),
-                            "protected_changes": prot, "patch_sha256": hashlib.sha256(patch.encode()).hexdigest()})
+                            "protected_changes": prot, "patch_sha256": hashlib.sha256(_patch_bytes(patch)).hexdigest()})
                 attempts.append(rec)
                 emit("TESTS_RAN", "running", tests=_slim(tests_after))
                 emit("ATTEMPT_FINISHED", "running", duration=rec["duration_s"], error=rec.get("stop_reason"))
@@ -218,7 +222,7 @@ class Harness:
         finally:
             resources = sampler.stop()
         final_patch = self.diff(ctx.worktree) if ctx.worktree.exists() else ""
-        (out / "changes.patch").write_text(final_patch, encoding="utf-8")
+        (out / "changes.patch").write_bytes(_patch_bytes(final_patch))
         duration = round(time.monotonic() - t_start, 3)
         status = {"SUCCESS": "succeeded", "FUNCTIONAL_FAILURE": "failed", "BLOCKED": "blocked",
                   "INFRA_FAILURE": "infra_error", "CONTRACT_VIOLATION": "failed", "TIMEOUT": "timeout",
@@ -241,7 +245,7 @@ class Harness:
             "resources": resources, "contract_violations": violations,
             "diff": {"files": _diff_files(final_patch), "lines_added": _count_lines(final_patch, "+"),
                      "lines_removed": _count_lines(final_patch, "-"),
-                     "sha256": hashlib.sha256(final_patch.encode()).hexdigest()},
+                     "sha256": hashlib.sha256(_patch_bytes(final_patch)).hexdigest()},
             "evidence": {"run_manifest": "run_manifest.json", "tool_calls": "tool_calls.jsonl",
                          "events": "events.jsonl", "patch": "changes.patch", "attempts": "attempts/"}}
         manifest.update({"finished_at": _now_iso(self.clock), "outcome": outcome, "error": error,
@@ -401,6 +405,10 @@ def _slim(t: Mapping[str, Any] | None) -> dict | None:
                                   "duration_s")}
 
 
+def _patch_bytes(patch: str) -> bytes:
+    return patch.encode("utf-8", "surrogateescape")
+
+
 def _read_jsonl(p: Path) -> list[dict]:
     if not p.exists():
         return []
@@ -408,7 +416,7 @@ def _read_jsonl(p: Path) -> list[dict]:
 
 
 def _write_json(p: Path, obj: Any) -> None:
-    p.write_text(json.dumps(obj, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
+    p.write_text(json.dumps(obj, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8", newline="\n")
 
 
 def _count(it) -> dict:

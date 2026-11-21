@@ -217,3 +217,16 @@ def test_run_finished_carries_manifest_path_and_sha256(task, tmp_path):
     last = json.loads((out / "events.jsonl").read_text().splitlines()[-1])
     assert last["type"] == "RUN_FINISHED" and last["schema"] == "agent_event/1.1"
     assert last["manifest"]["sha256"] == hashlib.sha256((out / "run_manifest.json").read_bytes()).hexdigest()
+
+
+def test_saved_patch_is_byte_exact_and_applies_on_the_base_commit(task, tmp_path):
+    # the fixture here is written with CRLF (Path.write_text on Windows) and the agent writes LF:
+    # the patch must keep those bytes, never be re-encoded by text-mode I/O
+    import subprocess
+    _h().run(task, Scripted([write(FIXED), "ok"]), Limits(), _ctx(tmp_path))
+    patch = tmp_path / "out" / "r1" / "changes.patch"
+    for f in (tmp_path / "out" / "r1").glob("*.json*"):
+        assert b"\r\n" not in f.read_bytes(), f.name
+    wt = tmp_path / "check"
+    subprocess.run(["git", "worktree", "add", "-q", "--detach", str(wt), task.base_commit], cwd=task.repo_dir, check=True)
+    assert subprocess.run(["git", "apply", "--check", str(patch)], cwd=wt).returncode == 0

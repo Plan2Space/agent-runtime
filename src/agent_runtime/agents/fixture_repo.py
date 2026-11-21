@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
+import sys
 from pathlib import Path
 
 FIXED_DATE = "2026-11-20T00:00:00+00:00"
@@ -25,10 +27,16 @@ def _git(args: list[str], cwd: Path) -> str:
     return r.stdout.strip()
 
 
+def _force_writable(func, path, _exc):
+    """git marks object files read-only; on Windows rmtree cannot unlink them until they are writable."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
 def build_fixture_repo(source: Path, repo: Path, message: str = "fixture base") -> str:
     """Create ``repo`` from the files in ``source`` (fresh) and return the base commit SHA."""
     if repo.exists():
-        shutil.rmtree(repo)
+        shutil.rmtree(repo, **({"onexc": _force_writable} if sys.version_info >= (3, 12) else {"onerror": _force_writable}))
     shutil.copytree(source, repo, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
     _git(["init", "-q", "-b", "main"], repo)
     _git(["config", "core.autocrlf", "false"], repo)

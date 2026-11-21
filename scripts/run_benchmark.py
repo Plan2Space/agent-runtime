@@ -126,7 +126,7 @@ def run_backend(name: str, repeats: int, work: Path, out: Path, scenarios_filter
             results.append(res)
             print(f"    -> {res['outcome']} attempts={res['attempts']} calls={res['tool_calls']} "
                   f"t={res['duration_s']}s err={res.get('error')}", flush=True)
-            (runs_dir / "results.jsonl").open("a", encoding="utf-8").write(json.dumps(res) + "\n")
+            (runs_dir / "results.jsonl").open("a", encoding="utf-8", newline="\n").write(json.dumps(res) + "\n")
     write_backend_outputs(name, out, results)
 
 
@@ -147,7 +147,7 @@ def write_backend_outputs(name: str, out: Path, results: list[dict]) -> None:
         "sampling": first.get("sampling"), "limits": BENCH_LIMITS.__dict__, "instructions": INSTRUCTIONS,
         "system_prompt": SYSTEM_PROMPT, "environment": env, "runs": manifests}, indent=2, default=str) + "\n",
         encoding="utf-8")
-    with (out / "tool_calls.jsonl").open("w", encoding="utf-8") as fh:
+    with (out / "tool_calls.jsonl").open("w", encoding="utf-8", newline="\n") as fh:
         for res in results:
             p = runs_dir / f"{res['scenario']}_r{res['repeat']}" / "tool_calls.jsonl"
             if p.exists():
@@ -155,13 +155,13 @@ def write_backend_outputs(name: str, out: Path, results: list[dict]) -> None:
                     fh.write(line + "\n")
     (out / "test_results.json").write_text(json.dumps([
         {"run_id": r["run_id"], "scenario": r["scenario"], "repeat": r["repeat"], "before": r["tests_before"],
-         "after": r["tests_after"], "hidden": r["hidden_tests"]} for r in results], indent=2) + "\n", encoding="utf-8")
-    with (out / "changes.patch").open("w", encoding="utf-8") as fh:
+         "after": r["tests_after"], "hidden": r["hidden_tests"]} for r in results], indent=2) + "\n", encoding="utf-8", newline="\n")
+    with (out / "changes.patch").open("w", encoding="utf-8", newline="\n") as fh:
         for res in results:
             p = runs_dir / f"{res['scenario']}_r{res['repeat']}" / "changes.patch"
             fh.write(f"### run {res['run_id']} outcome={res['outcome']}\n")
             fh.write(p.read_text(encoding="utf-8") if p.exists() else "(no patch)\n")
-    (out / "metrics.json").write_text(json.dumps(results, indent=2, default=str) + "\n", encoding="utf-8")
+    (out / "metrics.json").write_text(json.dumps(results, indent=2, default=str) + "\n", encoding="utf-8", newline="\n")
     evaluation = [{"run_id": r["run_id"], "scenario": r["scenario"], "outcome": r["outcome"],
                    "visible_tests_pass": bool(r["tests_after"] and r["tests_after"].get("passed_all")),
                    "hidden_tests_pass": bool(r["hidden_tests"] and r["hidden_tests"].get("passed_all")),
@@ -169,7 +169,7 @@ def write_backend_outputs(name: str, out: Path, results: list[dict]) -> None:
                    "diff_only_under_src": all(f.startswith("src/") for f in r.get("diff", {}).get("files", [])),
                    "evaluator": "harness deterministic: visible tests re-run by harness + hidden tests + "
                                 "protected-path check; not the evaluated agent"} for r in results]
-    (out / "evaluation.json").write_text(json.dumps(evaluation, indent=2) + "\n", encoding="utf-8")
+    (out / "evaluation.json").write_text(json.dumps(evaluation, indent=2) + "\n", encoding="utf-8", newline="\n")
     lines = [f"# Benchmark S00-11 — {name}", "", f"Modelo: `{first.get('model', MODELS.get(name))}` · digest "
              f"`{first.get('model_digest')}` · quant `{first.get('quantization')}` · commit agent-runtime "
              f"`{env['agent_runtime_commit'][:12]}`", "",
@@ -184,14 +184,14 @@ def write_backend_outputs(name: str, out: Path, results: list[dict]) -> None:
     ok = sum(r["functional_success"] for r in results)
     lines += ["", f"Sucesso funcional: **{ok}/{len(results)}**. Intervenção humana: nenhuma.", "",
               "Erros: " + ("; ".join(f"{r['run_id']}: {r['error']}" for r in results if r.get("error")) or "nenhum")]
-    (out / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 def smoke_all(work: Path, out_file: Path) -> None:
     """S00-05: one real call per backend through the shared tool contract."""
     ws = work / "smoke_ws"
     ws.mkdir(parents=True, exist_ok=True)
-    (ws / "hello.txt").write_text("hello\n", encoding="utf-8")
+    (ws / "hello.txt").write_text("hello\n", encoding="utf-8", newline="\n")
     pol = ToolPolicy(enabled=frozenset({"list_files", "read_file"}))
     report = {"generated_at": datetime.now(timezone.utc).isoformat(), "backends": {}}
     prompt = "Use the list_files tool once to list the workspace, then answer with the file names only."
@@ -232,7 +232,7 @@ def smoke_all(work: Path, out_file: Path) -> None:
     except Exception as exc:  # noqa: BLE001
         report["backends"]["claude"] = {"status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
     out_file.parent.mkdir(parents=True, exist_ok=True)
-    out_file.write_text(json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8")
+    out_file.write_text(json.dumps(report, indent=2, default=str) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({k: v.get("status") for k, v in report["backends"].items()}))
 
 

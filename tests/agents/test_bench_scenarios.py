@@ -46,3 +46,10 @@ def test_hidden_tests_and_reference_are_not_in_the_agent_workspace(tmp_path):
         files = {p.name for p in task.repo_dir.rglob("*") if p.is_file() and ".git" not in p.parts}
         assert s.hidden.name not in files
         assert not (task.repo_dir / "reference").exists()
+
+
+def test_fixture_repo_can_be_rebuilt_over_an_existing_one(tmp_path):
+    # git object files are read-only on Windows; rebuilding must not fail with PermissionError
+    s = SCENARIOS[0]
+    first = build_task(s, tmp_path / "fx").base_commit
+    assert build_task(s, tmp_path / "fx").base_commit == first

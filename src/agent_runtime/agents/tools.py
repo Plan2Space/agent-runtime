@@ -232,7 +232,7 @@ class ToolExecutor:
                "ok": result.ok, "error_kind": result.error_kind, "duration_ms": round(duration_s * 1000),
                "data": dict(result.data), "output_head": result.output[:300]}
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.log_path.open("a", encoding="utf-8") as fh:
+        with self.log_path.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
 
     # -- tools --------------------------------------------------------------

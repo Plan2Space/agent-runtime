@@ -103,5 +103,5 @@ class JsonlSink:
 
     def emit(self, rec: Mapping[str, Any]) -> None:
         validate_agent_event(rec)
-        with self.path.open("a", encoding="utf-8") as fh:
+        with self.path.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(dict(rec), ensure_ascii=False) + "\n")
