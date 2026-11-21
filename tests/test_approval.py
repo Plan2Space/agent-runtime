@@ -187,3 +187,8 @@ def test_approval_grammar_detector_catches_variants_the_runtime_must_never_post(
     for t in (f"APROVADO HIGH {SHA}", f"approved low {SHA[:7]}", f"x\nAprovado Medium {SHA.upper()}\ny"):
         assert contains_approval_grammar(t), t
     assert not contains_approval_grammar("approved the plan, see HIGH risk notes")
+
+
+def test_merge_gate_module_is_high_risk():
+    # the module that gives the runtime merge power can never be merged by that same power
+    assert classify_risk(["src/agent_runtime/merge_gate.py"])[0] == "HIGH"

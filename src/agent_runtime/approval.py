@@ -26,7 +26,7 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 HIGH_PATTERNS = (
     "docs/contracts/*", "src/agent_runtime/contracts.py", "src/agent_runtime/event_store.py",
-    "src/agent_runtime/approval.py", "src/agent_runtime/agents/tools.py", "src/agent_runtime/agents/claude_cli.py",
+    "src/agent_runtime/approval.py", "src/agent_runtime/merge_gate.py", "src/agent_runtime/agents/tools.py", "src/agent_runtime/agents/claude_cli.py",
     "src/agent_runtime/agents/events.py", "src/agent_runtime/agents/harness.py",
     "src/agent_runtime/agents/mcp_server.py", "src/agent_runtime/outbox_publisher.py", ".github/*",
     "*tolerance*", "*geometry*", "schemas/*",
