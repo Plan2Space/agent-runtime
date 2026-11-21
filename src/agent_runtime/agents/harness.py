@@ -47,7 +47,8 @@ LOOP_REPEAT_LIMIT = 4  # identical consecutive tool calls before the harness sto
 
 # Files that change how pytest runs, protected at any depth whatever the task declares (S00-05 §4 CONTRACT_VIOLATION):
 # a conftest hook or a shadowing pytest.py can turn failing tests green, the hidden evaluator included.
-GATE_FILES = ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", ".coveragerc", "noxfile.py",
+GATE_FILES = ("conftest.py", "pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini", "setup.cfg",
+              "pyproject.toml", ".coveragerc", "noxfile.py",
               "pytest.py", "sitecustomize.py", "usercustomize.py")
 GATE_PACKAGES = ("pytest", "_pytest")          # a local package of that name shadows the real one under `python -m`
 GATE_WRITE_DENY = (*(p for n in GATE_FILES for p in (n, f"*/{n}")),
@@ -128,8 +129,8 @@ class Harness:
         finally:
             shutil.rmtree(report_dir, ignore_errors=True)
         out = b.stdout + "\n" + b.stderr
-        executed = None if junit is None else junit["tests"] - junit["skipped"]
-        passed_all = (b.exit_code == 0 and junit is not None and junit["failures"] == 0 and junit["errors"] == 0
+        executed = None if junit is None else junit["executed"]
+        passed_all = (b.exit_code == 0 and junit is not None and junit["failing"] == 0 and junit["suite_bad"] == 0
                       and executed >= max(min_executed, 1))
         return {"exit_code": b.exit_code, "timed_out": b.timed_out, "duration_s": round(b.duration_s, 3),
                 **parse_pytest_counts(b.stdout), "passed_all": passed_all, "executed": executed,
@@ -243,6 +244,11 @@ class Harness:
                     violations.append(f"protected paths modified: {prot}")
                     outcome, error = "CONTRACT_VIOLATION", violations[-1]
                     raise _Stop
+                late = self.protected_changes(task, ctx.worktree)   # created while the tests ran (S00-05 §4)
+                if late:
+                    violations.append(f"protected paths created during the test run: {late}")
+                    outcome, error = "CONTRACT_VIOLATION", violations[-1]
+                    raise _Stop
                 if tests_after["passed_all"]:
                     break
                 feedback = tests_after["output_tail"]
@@ -251,6 +257,11 @@ class Harness:
                 error = f"tests still failing after {limits.max_attempts} attempts"
                 raise _Stop
             hidden = self.evaluate_hidden(task, ctx.worktree, limits.tool_timeout_s)
+            late = self.protected_changes(task, ctx.worktree)
+            if late:
+                violations.append(f"protected paths created during the hidden evaluation: {late}")
+                outcome, error = "CONTRACT_VIOLATION", violations[-1]
+                raise _Stop
             if hidden is not None and not hidden["passed_all"]:
                 outcome, error = "FUNCTIONAL_FAILURE", "visible tests pass but hidden evaluator rejects the change"
             else:
@@ -464,9 +475,18 @@ def _read_junit(path: Path) -> dict | None:
     if not suites:
         return None
     try:
-        return {k: sum(int(s.get(k, 0)) for s in suites) for k in ("tests", "failures", "errors", "skipped")}
+        suite_bad = sum(int(s.get("failures", 0)) + int(s.get("errors", 0)) for s in suites)
     except ValueError:
         return None
+    # Distinct cases: pytest writes a second <testcase> for a call failure followed by a teardown error.
+    executed, failing = set(), set()
+    for case in root.iter("testcase"):
+        key = (case.get("classname", ""), case.get("name", ""))
+        if case.find("failure") is not None or case.find("error") is not None:
+            failing.add(key)
+        if case.find("skipped") is None:
+            executed.add(key)
+    return {"executed": len(executed), "failing": len(failing), "suite_bad": suite_bad}
 
 
 class _Stop(Exception):

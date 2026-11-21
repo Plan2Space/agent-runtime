@@ -31,7 +31,8 @@ HIGH_PATTERNS = (
     "src/agent_runtime/agents/mcp_server.py", "src/agent_runtime/outbox_publisher.py", ".github/*",
     "*tolerance*", "*geometry*", "schemas/*",
     # test/gate configuration and agent permissions, at any depth (S00-05 risk table): they can switch a gate off
-    *(p for name in ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", ".coveragerc",
+    *(p for name in ("conftest.py", "pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini", "setup.cfg",
+                     "pyproject.toml", ".coveragerc",
                      "noxfile.py", "pytest.py", "sitecustomize.py", "usercustomize.py") for p in (name, f"*/{name}")),
     "_pytest/*", "*/_pytest/*", "pytest/*", "*/pytest/*", "*.pth", ".claude/*",
 )
@@ -86,6 +87,13 @@ def classify_risk(changed_files: Sequence[str], labels: Iterable[str] = (), *,
         info = changes.get(f) or {}
         status, patch = info.get("status"), info.get("patch")
         previous = info.get("previous_filename")
+        if status == "renamed" and previous and _match(previous, HIGH_PATTERNS):
+            high.append(f"high-risk path renamed: {previous} -> {f}")
+            continue
+        if (status == "renamed" and previous and not _match(previous, LOW_PATTERNS + TEST_PATTERNS)
+                and not _match(f, TEST_PATTERNS)):
+            medium.append(f"code renamed to a lower-risk name: {previous} -> {f}")
+            continue
         if status == "renamed" and previous and _match(previous, TEST_PATTERNS) and not _match(f, TEST_PATTERNS):
             high.append(f"test file renamed out of the test folders: {previous} -> {f}")
             continue
