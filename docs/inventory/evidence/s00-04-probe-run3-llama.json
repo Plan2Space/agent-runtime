@@ -1,0 +1,498 @@
+{
+  "started_at": "2026-11-20T22:09:14-0300",
+  "host": "http://127.0.0.1:11434",
+  "ollama_version": "0.40.16",
+  "python": "3.12.13",
+  "listed_models": [
+    {
+      "name": "llama3.1:8b",
+      "digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
+      "size": 4920753328,
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "llama",
+        "families": [
+          "llama"
+        ],
+        "parameter_size": "8.0B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 131072,
+        "embedding_length": 4096,
+        "runner": "ggml"
+      }
+    },
+    {
+      "name": "qwen3:14b",
+      "digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+      "size": 9276198565,
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen3",
+        "families": [
+          "qwen3"
+        ],
+        "parameter_size": "14.8B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 40960,
+        "embedding_length": 5120,
+        "runner": "ggml"
+      }
+    },
+    {
+      "name": "qwen2.5-coder:14b",
+      "digest": "9ec8897f747e246e970bc5cfdda85d22f1123dc2e3d34978a010a75968716849",
+      "size": 8988124298,
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen2",
+        "families": [
+          "qwen2"
+        ],
+        "parameter_size": "14.8B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 32768,
+        "embedding_length": 5120,
+        "runner": "ggml"
+      }
+    },
+    {
+      "name": "nomic-embed-text:latest",
+      "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+      "size": 274302450,
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "nomic-bert",
+        "families": [
+          "nomic-bert"
+        ],
+        "parameter_size": "137M",
+        "quantization_level": "F16",
+        "context_length": 2048,
+        "embedding_length": 768,
+        "runner": "ggml"
+      }
+    }
+  ],
+  "chat": [
+    {
+      "model": "llama3.1:8b",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "llama",
+        "families": [
+          "llama"
+        ],
+        "parameter_size": "8.0B",
+        "quantization_level": "Q4_K_M"
+      },
+      "capabilities": [
+        "completion",
+        "tools"
+      ],
+      "think_param": null,
+      "options": {
+        "temperature": 0,
+        "seed": 42,
+        "num_ctx": 4096
+      },
+      "cold_start": {
+        "wall_ms": 2322.0,
+        "total_ms": 2320.1,
+        "load_ms": 2247.6,
+        "prompt_tokens": 26,
+        "prompt_tps": 450.4,
+        "eval_tokens": 2,
+        "eval_tps": 160.46,
+        "done_reason": "stop"
+      },
+      "placement": {
+        "size_mib": 5035,
+        "size_vram_mib": 5035,
+        "gpu_fraction": 1.0,
+        "context_length": 4096
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 1522,
+        "free_mib": 14456,
+        "util_pct": 1
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 6825,
+        "free_mib": 9153,
+        "util_pct": 12
+      },
+      "vram_delta_mib": 5303,
+      "tasks": {
+        "arithmetic": {
+          "passed": true,
+          "answer": "391",
+          "metrics": {
+            "wall_ms": 19.8,
+            "total_ms": 18.7,
+            "load_ms": 1.7,
+            "prompt_tokens": 26,
+            "prompt_tps": 3063.87,
+            "eval_tokens": 2,
+            "eval_tps": 307.03,
+            "done_reason": "stop"
+          }
+        },
+        "code_palindrome": {
+          "passed": true,
+          "returncode": 0,
+          "stderr_tail": [],
+          "metrics": {
+            "wall_ms": 772.4,
+            "total_ms": 745.8,
+            "load_ms": 1.7,
+            "prompt_tokens": 60,
+            "prompt_tps": 3710.35,
+            "eval_tokens": 116,
+            "eval_tps": 160.28,
+            "done_reason": "stop"
+          }
+        }
+      },
+      "warm_runs": [
+        {
+          "wall_ms": 1039.4,
+          "total_ms": 1023.9,
+          "load_ms": 1.7,
+          "prompt_tokens": 29,
+          "prompt_tps": 2260.15,
+          "eval_tokens": 161,
+          "eval_tps": 160.53,
+          "done_reason": "stop"
+        },
+        {
+          "wall_ms": 1013.7,
+          "total_ms": 1010.8,
+          "load_ms": 1.6,
+          "prompt_tokens": 29,
+          "prompt_tps": 4228.64,
+          "eval_tokens": 161,
+          "eval_tps": 161.41,
+          "done_reason": "stop"
+        },
+        {
+          "wall_ms": 1009.8,
+          "total_ms": 1008.4,
+          "load_ms": 1.5,
+          "prompt_tokens": 29,
+          "prompt_tps": 4539.05,
+          "eval_tokens": 161,
+          "eval_tps": 161.26,
+          "done_reason": "stop"
+        }
+      ],
+      "warm_eval_tps_median": 161.26,
+      "warm_prompt_tps_median": 4228.64
+    },
+    {
+      "model": "qwen3:14b",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen3",
+        "families": [
+          "qwen3"
+        ],
+        "parameter_size": "14.8B",
+        "quantization_level": "Q4_K_M"
+      },
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ],
+      "think_param": false,
+      "options": {
+        "temperature": 0,
+        "seed": 42,
+        "num_ctx": 4096
+      },
+      "cold_start": {
+        "wall_ms": 2426.3,
+        "total_ms": 2400.0,
+        "load_ms": 2238.8,
+        "prompt_tokens": 34,
+        "prompt_tps": 354.05,
+        "eval_tokens": 4,
+        "eval_tps": 63.88,
+        "done_reason": "stop"
+      },
+      "placement": {
+        "size_mib": 9209,
+        "size_vram_mib": 9209,
+        "gpu_fraction": 1.0,
+        "context_length": 4096
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 1522,
+        "free_mib": 14456,
+        "util_pct": 95
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 11043,
+        "free_mib": 4935,
+        "util_pct": 0
+      },
+      "vram_delta_mib": 9521,
+      "tasks": {
+        "arithmetic": {
+          "passed": true,
+          "answer": "391",
+          "metrics": {
+            "wall_ms": 50.5,
+            "total_ms": 49.1,
+            "load_ms": 1.7,
+            "prompt_tokens": 34,
+            "prompt_tps": 2893.12,
+            "eval_tokens": 4,
+            "eval_tps": 118.8,
+            "done_reason": "stop"
+          }
+        },
+        "code_palindrome": {
+          "passed": true,
+          "returncode": 0,
+          "stderr_tail": [],
+          "metrics": {
+            "wall_ms": 504.3,
+            "total_ms": 483.6,
+            "load_ms": 2.2,
+            "prompt_tokens": 66,
+            "prompt_tps": 2579.03,
+            "eval_tokens": 41,
+            "eval_tps": 90.9,
+            "done_reason": "stop"
+          }
+        }
+      },
+      "warm_runs": [
+        {
+          "wall_ms": 2012.5,
+          "total_ms": 1993.5,
+          "load_ms": 1.7,
+          "prompt_tokens": 37,
+          "prompt_tps": 1753.31,
+          "eval_tokens": 176,
+          "eval_tps": 89.51,
+          "done_reason": "stop"
+        },
+        {
+          "wall_ms": 1999.2,
+          "total_ms": 1982.3,
+          "load_ms": 1.7,
+          "prompt_tokens": 37,
+          "prompt_tps": 3226.65,
+          "eval_tokens": 176,
+          "eval_tps": 89.74,
+          "done_reason": "stop"
+        },
+        {
+          "wall_ms": 1986.7,
+          "total_ms": 1984.6,
+          "load_ms": 2.1,
+          "prompt_tokens": 37,
+          "prompt_tps": 3231.44,
+          "eval_tokens": 176,
+          "eval_tps": 89.66,
+          "done_reason": "stop"
+        }
+      ],
+      "warm_eval_tps_median": 89.66,
+      "warm_prompt_tps_median": 3226.65
+    },
+    {
+      "model": "qwen2.5-coder:14b",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen2",
+        "families": [
+          "qwen2"
+        ],
+        "parameter_size": "14.8B",
+        "quantization_level": "Q4_K_M"
+      },
+      "capabilities": [
+        "completion",
+        "tools",
+        "insert"
+      ],
+      "think_param": null,
+      "options": {
+        "temperature": 0,
+        "seed": 42,
+        "num_ctx": 4096
+      },
+      "cold_start": {
+        "wall_ms": 4084.8,
+        "total_ms": 4082.8,
+        "load_ms": 3968.6,
+        "prompt_tokens": 47,
+        "prompt_tps": 672.07,
+        "eval_tokens": 4,
+        "eval_tps": 95.94,
+        "done_reason": "stop"
+      },
+      "placement": {
+        "size_mib": 9041,
+        "size_vram_mib": 9041,
+        "gpu_fraction": 1.0,
+        "context_length": 4096
+      },
+      "gpu_before": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 1522,
+        "free_mib": 14456,
+        "util_pct": 97
+      },
+      "gpu_loaded": {
+        "name": "NVIDIA GeForce RTX 5080",
+        "driver": "595.97",
+        "total_mib": 16303,
+        "used_mib": 10835,
+        "free_mib": 5143,
+        "util_pct": 13
+      },
+      "vram_delta_mib": 9313,
+      "tasks": {
+        "arithmetic": {
+          "passed": true,
+          "answer": "391",
+          "metrics": {
+            "wall_ms": 49.7,
+            "total_ms": 48.6,
+            "load_ms": 1.7,
+            "prompt_tokens": 47,
+            "prompt_tps": 4086.96,
+            "eval_tokens": 4,
+            "eval_tps": 119.03,
+            "done_reason": "stop"
+          }
+        },
+        "code_palindrome": {
+          "passed": true,
+          "returncode": 0,
+          "stderr_tail": [],
+          "metrics": {
+            "wall_ms": 764.7,
+            "total_ms": 762.8,
+            "load_ms": 1.6,
+            "prompt_tokens": 79,
+            "prompt_tps": 2966.36,
+            "eval_tokens": 66,
+            "eval_tps": 90.51,
+            "done_reason": "stop"
+          }
+        }
+      },
+      "warm_runs": [
+        {
+          "wall_ms": 1766.2,
+          "total_ms": 1744.8,
+          "load_ms": 2.3,
+          "prompt_tokens": 50,
+          "prompt_tps": 2181.6,
+          "eval_tokens": 154,
+          "eval_tps": 89.94,
+          "done_reason": "stop"
+        },
+        {
+          "wall_ms": 1630.8,
+          "total_ms": 1616.3,
+          "load_ms": 2.2,
+          "prompt_tokens": 50,
+          "prompt_tps": 4390.97,
+          "eval_tokens": 144,
+          "eval_tps": 90.29,
+          "done_reason": "stop"
+        },
+        {
+          "wall_ms": 1632.1,
+          "total_ms": 1616.1,
+          "load_ms": 1.5,
+          "prompt_tokens": 50,
+          "prompt_tps": 4382.12,
+          "eval_tokens": 144,
+          "eval_tps": 90.27,
+          "done_reason": "stop"
+        }
+      ],
+      "warm_eval_tps_median": 90.27,
+      "warm_prompt_tps_median": 4382.12
+    }
+  ],
+  "embed": [
+    {
+      "model": "nomic-embed-text:latest",
+      "cold_ms": 5017.3,
+      "warm_ms": 33.3,
+      "load_ms": 4977.8,
+      "vectors": 2,
+      "dims": 768,
+      "deterministic": true,
+      "placement": {
+        "size_mib": 320,
+        "size_vram_mib": 320,
+        "gpu_fraction": 1.0,
+        "context_length": 2048
+      }
+    }
+  ],
+  "errors": [],
+  "concurrency": {
+    "first": "llama3.1:8b",
+    "second": "qwen3:14b",
+    "loaded_after_first": [
+      "llama3.1:8b"
+    ],
+    "loaded_after_second": {
+      "qwen3:14b": {
+        "size_mib": 9209,
+        "size_vram_mib": 9209
+      }
+    },
+    "first_evicted": true,
+    "second_request": {
+      "wall_ms": 2902.4,
+      "total_ms": 2888.0,
+      "load_ms": 2726.0,
+      "prompt_tokens": 34,
+      "prompt_tps": 353.05,
+      "eval_tokens": 4,
+      "eval_tps": 63.2,
+      "done_reason": "stop"
+    },
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 5080",
+      "driver": "595.97",
+      "total_mib": 16303,
+      "used_mib": 11043,
+      "free_mib": 4935,
+      "util_pct": 27
+    }
+  },
+  "finished_at": "2026-11-20T22:09:50-0300"
+}
