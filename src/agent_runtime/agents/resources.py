@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 
 
 def _gpu_sample() -> tuple[float, float] | None:

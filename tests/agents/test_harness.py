@@ -1,6 +1,5 @@
 import json
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -188,3 +187,33 @@ def test_run_is_recorded_in_event_store(task, tmp_path):
     assert any(e["event_type"] == "JOB_FAILED" and e["job_id"] == "ko" for e in store.events())
     assert evs["ok"]["status"] == "DONE"
     assert evs["ko"]["status"] == "DLQ" and "BLOCKED" in evs["ko"]["error"]
+
+
+class DisconnectedCli:
+    """Fake DelegatingBackend whose harness MCP server never connects (observed with claude -p)."""
+    info = BackendInfo(backend="claude", provider="claude-code-cli", model="fake")
+
+    def __init__(self):
+        self.calls = 0
+
+    def run(self, **kw):
+        from agent_runtime.agents.contract import DelegatedRun
+        self.calls += 1
+        return DelegatedRun(exit_code=0, timed_out=False, final_text='<invoke name="list_files">', usage=Usage(5, 5),
+                            turns=1, raw={"subtype": "success", "mcp_status": "pending", "launches": 3})
+
+
+def test_delegated_attempt_without_connected_tools_is_infra_not_agent_failure(task, tmp_path):
+    be = DisconnectedCli()
+    res = _h().run(task, be, Limits(max_attempts=3), _ctx(tmp_path))
+    assert res["outcome"] == "INFRA_FAILURE" and "MCP" in res["error"]
+    assert be.calls == 1  # does not burn agent attempts on a broken tool channel
+
+
+def test_run_finished_carries_manifest_path_and_sha256(task, tmp_path):
+    import hashlib
+    _h().run(task, Scripted([write(FIXED), "ok"]), Limits(), _ctx(tmp_path))
+    out = tmp_path / "out" / "r1"
+    last = json.loads((out / "events.jsonl").read_text().splitlines()[-1])
+    assert last["type"] == "RUN_FINISHED" and last["schema"] == "agent_event/1.1"
+    assert last["manifest"]["sha256"] == hashlib.sha256((out / "run_manifest.json").read_bytes()).hexdigest()

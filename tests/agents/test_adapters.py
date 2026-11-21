@@ -1,7 +1,6 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -107,3 +106,19 @@ def test_benchmark_result_cannot_claim_success_on_infra_failure():
         validate_benchmark_result({**base, "infra_failure": True})
     with pytest.raises(RecordError):
         validate_benchmark_result({**base, "outcome": "BLOCKED"})
+
+
+def test_mcp_status_is_read_from_stream_json_init():
+    from agent_runtime.agents.claude_cli import parse_stream
+    out = ('{"type":"system","subtype":"init","mcp_servers":[{"name":"harness","status":"pending"}],"tools":[]}\n'
+           '{"type":"assistant","message":{}}\n'
+           '{"type":"result","subtype":"success","num_turns":1,"result":"x"}\n')
+    init, res = parse_stream(out)
+    assert init["mcp_status"] == "pending" and init["harness_tools"] == []
+    assert res["num_turns"] == 1
+
+
+def test_claude_argv_uses_stream_json_for_init_status(tmp_path):
+    argv = build_argv("claude", model="m", system_prompt_file=tmp_path / "s.txt", mcp_config=tmp_path / "c.json",
+                      policy=ToolPolicy(enabled=frozenset({"read_file"})), limits=Limits())
+    assert argv[argv.index("--output-format") + 1] == "stream-json" and "--verbose" in argv

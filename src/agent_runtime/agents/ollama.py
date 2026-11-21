@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import socket
 import urllib.error
 import urllib.request
 from collections.abc import Mapping, Sequence
@@ -26,7 +25,7 @@ def _http(url: str, payload: Mapping[str, Any] | None, timeout_s: float) -> dict
         if exc.code == 404:
             raise BackendUnavailable(f"ollama 404: {body}") from exc
         raise BackendError(f"ollama HTTP {exc.code}: {body}") from exc
-    except (urllib.error.URLError, ConnectionError, socket.timeout, TimeoutError) as exc:
+    except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
         raise BackendUnavailable(f"ollama unreachable at {url}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise BackendError(f"ollama returned non-JSON: {exc}") from exc

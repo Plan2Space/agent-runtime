@@ -43,7 +43,30 @@ def build_argv(exe: str, *, model: str, system_prompt_file: Path, mcp_config: Pa
     return [exe, "-p", "--model", model, "--system-prompt-file", str(system_prompt_file),
             "--tools", "", "--mcp-config", str(mcp_config), "--strict-mcp-config",
             "--allowedTools", allowed, "--max-turns", str(limits.max_tool_calls),
-            "--output-format", "json", "--no-session-persistence", "--setting-sources", "project"]
+            "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--setting-sources", "project"]
+
+
+# Observed with claude 2.1.158: by default ``-p`` may start the first turn while the MCP server is still
+# "pending"; the model then has no tools and writes tool calls as text. Blocking connection fixes it, and
+# the init message is still checked so a broken tool channel is reported as infrastructure.
+CLI_ENV = {"MCP_CONNECTION_NONBLOCKING": "false", "MCP_TIMEOUT": "60000"}
+MAX_LAUNCHES = 3
+
+
+def parse_stream(stdout: str) -> tuple[dict, dict]:
+    """Return (init info, result object) from ``--output-format stream-json --verbose`` output."""
+    init: dict = {"mcp_status": None, "harness_tools": []}
+    for line in stdout.splitlines():
+        if '"subtype":"init"' not in line.replace(" ", ""):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        status = next((s.get("status") for s in obj.get("mcp_servers", []) if s.get("name") == "harness"), None)
+        init = {"mcp_status": status, "harness_tools": [t for t in obj.get("tools", []) if t.startswith("mcp__harness__")]}
+        break
+    return init, parse_result(stdout)
 
 
 def parse_result(stdout: str) -> dict:
@@ -80,9 +103,17 @@ class ClaudeCliBackend:
         sp_path.write_text(system_prompt, encoding="utf-8")
         argv = build_argv(self.exe, model=self.info.model, system_prompt_file=sp_path,
                           mcp_config=cfg_path, policy=policy, limits=limits)
-        env = {k: v for k, v in os.environ.items() if k not in _DROP_ENV}
-        b = run_bounded(argv, workspace, timeout_s, env, stdin_text=task_prompt)
-        res = parse_result(b.stdout)
+        env = {**{k: v for k, v in os.environ.items() if k not in _DROP_ENV}, **CLI_ENV}
+        launches = []
+        for _ in range(MAX_LAUNCHES):
+            b = run_bounded(argv, workspace, timeout_s, env, stdin_text=task_prompt)
+            init, res = parse_stream(b.stdout)
+            launches.append({"mcp_status": init["mcp_status"], "exit_code": b.exit_code, "timed_out": b.timed_out,
+                             "turns": res.get("num_turns")})
+            if init["mcp_status"] == "connected" or b.timed_out:
+                break
+        res = {**res, "mcp_status": init["mcp_status"], "harness_tools": init["harness_tools"],
+               "launches": launches}
         u = res.get("usage") or {}
         prompt = None
         if u:

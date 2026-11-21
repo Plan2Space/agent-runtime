@@ -125,13 +125,14 @@ class Harness:
         state = {"attempt": 0, "status": "running"}
 
         def emit(etype: str, status: str, *, error: str | None = None, tests: dict | None = None,
-                 duration: float | None = None, evidence: list | None = None) -> None:
+                 duration: float | None = None, evidence: list | None = None,
+                 extra: dict | None = None) -> None:
             sink.emit({"schema": AGENT_EVENT_SCHEMA, "event_id": uuid.uuid4().hex, "ts": _now_iso(self.clock),
                        "run_id": ctx.run_id, "task_id": task.task_id, "agent": info.backend, "model": info.model,
                        "repo": task.repo_label, "worktree": str(ctx.worktree), "type": etype, "status": status,
                        "attempt": state["attempt"], "max_attempts": limits.max_attempts,
                        "duration_s": None if duration is None else round(duration, 3), "head_sha": task.base_commit,
-                       "pr": None, "error": error, "tests": tests, "evidence": evidence or []})
+                       "pr": None, "error": error, "tests": tests, "evidence": evidence or [], **(extra or {})})
 
         manifest: dict[str, Any] = {
             "run_id": ctx.run_id, "task_id": task.task_id, "scenario": task.scenario, "repeat": ctx.repeat,
@@ -246,9 +247,11 @@ class Harness:
         manifest.update({"finished_at": _now_iso(self.clock), "outcome": outcome, "error": error,
                          "attempts": attempts})
         _write_json(out / "run_manifest.json", manifest)
+        manifest_sha = hashlib.sha256((out / "run_manifest.json").read_bytes()).hexdigest()
         _write_json(out / "result.json", result)
         emit("RUN_FINISHED", status, error=error, duration=duration, tests=_slim(tests_after) if tests_after else None,
-             evidence=["run_manifest.json", "result.json", "changes.patch", "tool_calls.jsonl"])
+             evidence=["run_manifest.json", "result.json", "changes.patch", "tool_calls.jsonl"],
+             extra={"manifest": {"path": "run_manifest.json", "sha256": manifest_sha}})
         self._store_close(store_ev, result)
         if ctx.worktree.exists():
             self.remove_worktree(task, ctx.worktree)
@@ -336,6 +339,10 @@ class Harness:
         calls = len(_read_jsonl(tool_log)) - before
         if not r.timed_out and not r.raw:
             raise BackendError(f"claude CLI produced no result (exit {r.exit_code}): {r.stderr_tail[-500:]}")
+        if not r.timed_out and r.raw.get("mcp_status") != "connected":
+            # No harness tools reachable: the model could not act. Infrastructure, not an agent attempt.
+            raise BackendError(f"harness MCP server not connected (status={r.raw.get('mcp_status')!r}, "
+                               f"launches={r.raw.get('launches')})")
         subtype = r.raw.get("subtype")
         stop = "attempt_timeout" if r.timed_out else ("max_tool_calls" if subtype == "error_max_turns"
                                                       else "agent_finished" if subtype == "success" else str(subtype))
@@ -346,7 +353,8 @@ class Harness:
                 "usage": {"prompt": r.usage.prompt_tokens, "completion": r.usage.completion_tokens},
                 "cli": {"exit_code": r.exit_code, "subtype": subtype, "duration_ms": r.raw.get("duration_ms"),
                         "total_cost_usd_reported": r.raw.get("total_cost_usd"),
-                        "model_usage": list((r.raw.get("modelUsage") or {}).keys())}}
+                        "model_usage": list((r.raw.get("modelUsage") or {}).keys()),
+                        "mcp_status": r.raw.get("mcp_status"), "launches": r.raw.get("launches")}}
 
     # ------------------------------------------------------------------ evaluator
     def evaluate_hidden(self, task: Task, wt: Path, timeout_s: float) -> dict | None:

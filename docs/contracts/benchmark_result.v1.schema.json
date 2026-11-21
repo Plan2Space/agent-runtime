@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Plan2Space/agent-runtime/docs/contracts/benchmark_result.v1.schema.json",
+  "title": "benchmark_result v1",
+  "description": "Result of one harness run of one backend on one scenario repeat (result.json). Unmeasurable metrics are null with a reason, never estimated. An infrastructure failure can never be a success.",
+  "type": "object",
+  "required": ["schema", "run_id", "scenario", "repeat", "backend", "provider", "model", "base_commit", "outcome",
+               "functional_success", "infra_failure", "human_intervention", "attempts", "duration_s", "tool_calls",
+               "tool_errors", "tests_before", "tests_after", "hidden_tests", "tokens", "contract_violations", "evidence"],
+  "properties": {
+    "schema": {"type": "string", "pattern": "^benchmark_result/1\\.[0-9]+$"},
+    "run_id": {"type": "string"},
+    "scenario": {"type": "string"},
+    "repeat": {"type": "integer", "minimum": 1},
+    "backend": {"type": "string"},
+    "provider": {"type": "string", "description": "claude-code-cli | ollama"},
+    "model": {"type": "string"},
+    "model_digest": {"type": ["string", "null"]},
+    "quantization": {"type": ["string", "null"]},
+    "base_commit": {"type": "string", "description": "fixture commit SHA (identical for all backends)"},
+    "outcome": {"enum": ["SUCCESS", "FUNCTIONAL_FAILURE", "BLOCKED", "INFRA_FAILURE", "TIMEOUT", "CONTRACT_VIOLATION", "CANCELLED"]},
+    "functional_success": {"type": "boolean"},
+    "infra_failure": {"type": "boolean"},
+    "human_intervention": {"type": "boolean"},
+    "error": {"type": ["string", "null"]},
+    "attempts": {"type": "integer", "minimum": 0},
+    "duration_s": {"type": "number"},
+    "tool_calls": {"type": "integer"},
+    "tool_errors": {"type": "integer"},
+    "policy_refusals": {"type": "integer"},
+    "tool_usage": {"type": "object", "additionalProperties": {"type": "integer"}},
+    "tests_before": {"type": "object"},
+    "tests_after": {"type": ["object", "null"]},
+    "hidden_tests": {"type": ["object", "null"]},
+    "tokens": {
+      "type": "object",
+      "properties": {"prompt": {"type": ["integer", "null"]}, "completion": {"type": ["integer", "null"]},
+                     "measured": {"type": "boolean"}, "reason": {"type": "string"}}
+    },
+    "resources": {"type": "object"},
+    "contract_violations": {"type": "array", "items": {"type": "string"}},
+    "diff": {"type": "object"},
+    "evidence": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"functional_success": {"const": true}}}, "then": {"properties": {"outcome": {"const": "SUCCESS"}, "infra_failure": {"const": false}}}}
+  ],
+  "additionalProperties": true
+}

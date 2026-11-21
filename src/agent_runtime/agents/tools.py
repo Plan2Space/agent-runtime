@@ -19,7 +19,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,7 @@ from .contract import ToolCall, ToolResult, ToolSpec
 ALL_TOOLS = ("list_files", "read_file", "write_file", "replace_in_file", "run_tests",
              "run_command", "git_status", "git_diff")
 
-_SECRET_ENV = re.compile(r"(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|_KEY$|CREDENTIAL)", re.I)
+_SECRET_ENV = re.compile(r"(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|_KEY$|CREDENTIAL)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,7 @@ class ToolPolicy:
                 "max_file_bytes": self.max_file_bytes}
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> "ToolPolicy":
+    def from_dict(cls, d: Mapping[str, Any]) -> ToolPolicy:
         return cls(enabled=frozenset(d.get("enabled", ())),
                    write_deny=tuple(d.get("write_deny", (".git/*", ".git"))),
                    read_deny=tuple(d.get("read_deny", (".git/*", ".git"))),

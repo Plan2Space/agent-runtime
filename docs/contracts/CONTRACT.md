@@ -42,6 +42,18 @@ Garantias: reconciliação pela chave antes de todo envio; ACK só do dono do le
 - `fsync_dir(directory)`.
 - `replace_retry(src, dst, tries=100, pause=0.02)`.
 
+## Registros de agente (formato de arquivo, não API Python)
+
+O harness de agentes (`agent_runtime.agents`, S00-05/S00-06) grava dois registros versionados que consumidores leem
+como arquivo, sem importar o pacote:
+
+- `agent_event` v1 — `docs/contracts/agent_event.v1.schema.json`, um por linha em `<run_dir>/events.jsonl`.
+- `benchmark_result` v1 — `docs/contracts/benchmark_result.v1.schema.json`, `<run_dir>/result.json`.
+
+Texto normativo: `Plan2Space/engineering-specs` `plan2space/S00-05_agent_records_and_adapter.md` (citar por SHA).
+Leitor rejeita major diferente de 1 e ignora campo desconhecido. O módulo Python `agent_runtime.agents` e
+`agent_runtime.approval` ainda são internos (fora da prova de rollback) até a próxima versão MINOR do pacote.
+
 ## Fora do contrato
 
 - Módulos `_`-prefixados e qualquer caminho não listado acima.

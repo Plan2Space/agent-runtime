@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-AGENT_EVENT_SCHEMA = "agent_event/1.0"
+AGENT_EVENT_SCHEMA = "agent_event/1.1"  # 1.1: optional "manifest" {path, sha256} on RUN_FINISHED
 BENCHMARK_RESULT_SCHEMA = "benchmark_result/1.0"
 
 EVENT_TYPES = frozenset({"RUN_STARTED", "ATTEMPT_STARTED", "TOOL_CALLED", "TESTS_RAN",
@@ -62,6 +62,10 @@ def validate_agent_event(rec: Mapping[str, Any]) -> Mapping[str, Any]:
     _req(rec, "error", (str,), nullable=True)
     _req(rec, "tests", (dict,), nullable=True)
     _req(rec, "evidence", (list,))
+    if "manifest" in rec and rec["manifest"] is not None:
+        m = rec["manifest"]
+        if not isinstance(m, dict) or not isinstance(m.get("path"), str) or not isinstance(m.get("sha256"), str):
+            raise RecordError("manifest must be {path: str, sha256: str}")
     return rec
 
 

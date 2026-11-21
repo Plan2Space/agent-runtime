@@ -21,13 +21,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from agent_runtime.agents.bench import BENCH_LIMITS, INSTRUCTIONS, build_task, load_scenarios  # noqa: E402
-from agent_runtime.agents.claude_cli import ClaudeCliBackend  # noqa: E402
-from agent_runtime.agents.contract import BackendUnavailable, ToolCall  # noqa: E402
-from agent_runtime.agents.events import validate_benchmark_result  # noqa: E402
-from agent_runtime.agents.harness import SYSTEM_PROMPT, Harness, RunContext  # noqa: E402
-from agent_runtime.agents.ollama import OllamaChatBackend, describe_model  # noqa: E402
-from agent_runtime.agents.tools import TOOL_SPECS, ToolExecutor, ToolPolicy  # noqa: E402
+from agent_runtime.agents.bench import BENCH_LIMITS, INSTRUCTIONS, build_task, load_scenarios
+from agent_runtime.agents.claude_cli import ClaudeCliBackend
+from agent_runtime.agents.contract import BackendUnavailable, ToolCall
+from agent_runtime.agents.events import validate_benchmark_result
+from agent_runtime.agents.harness import SYSTEM_PROMPT, Harness, RunContext
+from agent_runtime.agents.ollama import OllamaChatBackend, describe_model
+from agent_runtime.agents.tools import TOOL_SPECS, ToolExecutor, ToolPolicy
 
 MODELS = {"qwen": "qwen3:14b", "llama": "llama3.1:8b", "claude": "claude-sonnet-5-5"}
 NUM_CTX = 16384
@@ -44,6 +44,26 @@ def make_backend(name: str, seed: int):
 
 def git_head() -> str:
     return subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
+
+
+def dirty_paths() -> list[str]:
+    out = subprocess.run(["git", "status", "--porcelain"], cwd=REPO, capture_output=True, text=True).stdout
+    return [ln[3:] for ln in out.splitlines() if ln.strip()]
+
+
+def core_sha256() -> dict[str, str]:
+    """Hash of every module that shapes agent behaviour or evaluation: equal hashes across backends prove
+    the three runs executed the same harness, tools, prompts, limits and scenarios."""
+    import hashlib
+    files = sorted((REPO / "src" / "agent_runtime" / "agents").glob("*.py")) + \
+        sorted(p for p in (REPO / "benchmark" / "scenarios").rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+    return {p.relative_to(REPO).as_posix(): hashlib.sha256(p.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+            for p in files if p.name not in ("adapter.py",)}
+
+
+START_HEAD = git_head()        # code the runs actually execute, captured before any run
+START_DIRTY = dirty_paths()
+START_CORE = core_sha256()
 
 
 def ollama_version() -> str | None:
@@ -74,12 +94,17 @@ def blocked_result(backend: str, scenario: str, repeat: int, base: str, reason: 
             "contract_violations": [], "evidence": {}}
 
 
-def run_backend(name: str, repeats: int, work: Path, out: Path, scenarios_filter: list[str] | None) -> None:
+def run_backend(name: str, repeats: int, work: Path, out: Path, scenarios_filter: list[str] | None,
+               store_path: Path | None = None) -> None:
     scenarios = [s for s in load_scenarios(REPO / "benchmark" / "scenarios")
                  if not scenarios_filter or s.name in scenarios_filter]
     runs_dir = out / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
-    harness = Harness()
+    store = None
+    if store_path:
+        from agent_runtime.event_store import EventStore
+        store = EventStore(store_path)
+    harness = Harness(store=store)
     results = []
     for s in scenarios:
         task = build_task(s, work / "fixtures" / name, python=sys.executable)
@@ -107,7 +132,7 @@ def run_backend(name: str, repeats: int, work: Path, out: Path, scenarios_filter
 
 def write_backend_outputs(name: str, out: Path, results: list[dict]) -> None:
     runs_dir = out / "runs"
-    env = {"agent_runtime_commit": git_head(), "python": sys.version.split()[0], "platform": platform.platform(),
+    env = {"agent_runtime_commit": START_HEAD, "agent_runtime_dirty": START_DIRTY, "core_sha256": START_CORE, "python": sys.version.split()[0], "platform": platform.platform(),
            "ollama_version": ollama_version() if name != "claude" else None,
            "claude_cli_version": claude_version() if name == "claude" else None,
            "generated_at": datetime.now(timezone.utc).isoformat()}
@@ -218,11 +243,12 @@ def main() -> int:
     ap.add_argument("--work", required=True, type=Path)
     ap.add_argument("--scenarios", nargs="*")
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--store", type=Path, help="EventStore (schema 1) where each run is recorded as a job")
     a = ap.parse_args()
     if a.backend == "smoke-all":
         smoke_all(a.work, a.out or REPO / "docs" / "evidence" / "s00-05-real-calls.json")
         return 0
-    run_backend(a.backend, a.repeats, a.work, a.out or REPO / "benchmark" / a.backend, a.scenarios)
+    run_backend(a.backend, a.repeats, a.work, a.out or REPO / "benchmark" / a.backend, a.scenarios, a.store)
     return 0
 
 
