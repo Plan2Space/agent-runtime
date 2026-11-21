@@ -308,7 +308,10 @@ class ToolExecutor:
             result = ToolResult(call.name, False, f"{type(exc).__name__}: {exc}"[:300], error_kind="error")
         except OSError as exc:
             result = ToolResult(call.name, False, f"{type(exc).__name__}: {exc}", error_kind="error")
-        self._log(call, result, time.monotonic() - t0)
+        try:
+            self._log(call, result, time.monotonic() - t0)
+        except (OSError, ValueError, TypeError):  # a log failure never turns a tool result into a crash (R13a)
+            pass
         return result
 
     def _log(self, call: ToolCall, result: ToolResult, duration_s: float) -> None:
@@ -317,7 +320,7 @@ class ToolExecutor:
         args = {}
         for k, v in dict(call.arguments if isinstance(call.arguments, Mapping) else {}).items():
             if isinstance(v, str) and len(v) > 400:
-                args[k] = {"sha256": hashlib.sha256(v.encode()).hexdigest(), "chars": len(v)}
+                args[k] = {"sha256": hashlib.sha256(v.encode("utf-8", "surrogatepass")).hexdigest(), "chars": len(v)}
             else:
                 args[k] = v
         rec = {**self.context, "seq": self.seq, "ts": self.clock(), "tool": call.name, "arguments": args,

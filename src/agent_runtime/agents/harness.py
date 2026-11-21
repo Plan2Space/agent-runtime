@@ -18,8 +18,10 @@ import hashlib
 import json
 import shutil
 import subprocess
+import tempfile
 import time
 import uuid
+import xml.etree.ElementTree as ET  # noqa: N817 - report from the test process; expat limits entity expansion
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -47,9 +49,11 @@ LOOP_REPEAT_LIMIT = 4  # identical consecutive tool calls before the harness sto
 # a conftest hook or a shadowing pytest.py can turn failing tests green, the hidden evaluator included.
 GATE_FILES = ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", ".coveragerc", "noxfile.py",
               "pytest.py", "sitecustomize.py", "usercustomize.py")
+GATE_PACKAGES = ("pytest", "_pytest")          # a local package of that name shadows the real one under `python -m`
 GATE_WRITE_DENY = (*(p for n in GATE_FILES for p in (n, f"*/{n}")),
-                   "_pytest", "_pytest/*", "*/_pytest", "*/_pytest/*", "*.pth")
-GATE_PATHSPECS = (*(f":(glob)**/{n}" for n in GATE_FILES), ":(glob)**/_pytest/**", ":(glob)**/*.pth")
+                   *(p for n in GATE_PACKAGES for p in (n, f"{n}/*", f"*/{n}", f"*/{n}/*")), "*.pth")
+GATE_PATHSPECS = (*(f":(glob)**/{n}" for n in GATE_FILES), *(f":(glob)**/{n}/**" for n in GATE_PACKAGES),
+                  ":(glob)**/*.pth")
 
 
 @dataclass(frozen=True)
@@ -106,13 +110,30 @@ class Harness:
         _git(["worktree", "prune"], task.repo_dir)
 
     # ------------------------------------------------------------------ tests
-    def run_tests(self, task: Task, wt: Path, timeout_s: float, argv: Sequence[str] | None = None) -> dict:
-        b = run_bounded(list(argv or task.policy.test_argv), wt, timeout_s, scrubbed_env())
-        if b.kill_failed:  # a survivor may still be writing to the worktree: no result from it is trustworthy
-            raise _Infra(f"test process tree could not be stopped after {timeout_s}s (kill_failed)")
+    def run_tests(self, task: Task, wt: Path, timeout_s: float, argv: Sequence[str] | None = None,
+                  min_executed: int = 1) -> dict:
+        """Passing = pytest wrote a JUnit report OUTSIDE the worktree with failures = errors = 0 and at least
+        ``min_executed`` executed tests (S00-05 §4 SUCCESS). The exit code alone proves nothing: ``os._exit(0)``
+        in code under test or a fake ``pytest/`` package also exit 0, and neither writes the report."""
+        base = list(argv or task.policy.test_argv)
+        report_dir = Path(tempfile.mkdtemp(prefix="p2s-junit-"))
+        report = report_dir / "junit.xml"
+        is_pytest = "pytest" in base
+        try:
+            full = [*base, f"--junitxml={report}", "-o", "junit_family=xunit2"] if is_pytest else base
+            b = run_bounded(full, wt, timeout_s, scrubbed_env())
+            if b.kill_failed:  # a survivor may still be writing to the worktree: no result from it is trustworthy
+                raise _Infra(f"test process tree could not be stopped after {timeout_s}s (kill_failed)")
+            junit = _read_junit(report) if is_pytest else None
+        finally:
+            shutil.rmtree(report_dir, ignore_errors=True)
         out = b.stdout + "\n" + b.stderr
+        executed = None if junit is None else junit["tests"] - junit["skipped"]
+        passed_all = (b.exit_code == 0 and junit is not None and junit["failures"] == 0 and junit["errors"] == 0
+                      and executed >= max(min_executed, 1))
         return {"exit_code": b.exit_code, "timed_out": b.timed_out, "duration_s": round(b.duration_s, 3),
-                **parse_pytest_counts(b.stdout), "passed_all": b.exit_code == 0, "output_tail": out[-4000:]}
+                **parse_pytest_counts(b.stdout), "passed_all": passed_all, "executed": executed,
+                "junit": junit is not None, "output_tail": out[-4000:]}
 
     def protected_changes(self, task: Task, wt: Path) -> list[str]:
         r = _git(["status", "--porcelain", "--untracked-files=all", "--", *task.protected, *GATE_PATHSPECS], wt)
@@ -211,7 +232,8 @@ class Harness:
                 patch = self.diff(ctx.worktree)
                 (out / "attempts" / f"attempt_{a}.patch").write_bytes(_patch_bytes(patch))
                 prot = self.protected_changes(task, ctx.worktree)
-                tests_after = self.run_tests(task, ctx.worktree, limits.tool_timeout_s)
+                tests_after = self.run_tests(task, ctx.worktree, limits.tool_timeout_s,
+                                             min_executed=tests_before.get("executed") or 1)
                 rec.update({"attempt": a, "duration_s": round(time.monotonic() - t_a, 3), "tests": _slim(tests_after),
                             "protected_changes": prot, "patch_sha256": hashlib.sha256(_patch_bytes(patch)).hexdigest()})
                 attempts.append(rec)
@@ -430,6 +452,21 @@ class Harness:
             self.store.complete(ev, {"outcome": result["outcome"], "attempts": result["attempts"]})
         else:
             self.store.fail(ev, f"{result['outcome']}: {result.get('error')}")
+
+
+def _read_junit(path: Path) -> dict | None:
+    """Totals of a pytest JUnit report, or None when it is missing or unreadable (= tests did not provably run)."""
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return None
+    suites = [root] if root.tag == "testsuite" else root.findall("testsuite")
+    if not suites:
+        return None
+    try:
+        return {k: sum(int(s.get(k, 0)) for s in suites) for k in ("tests", "failures", "errors", "skipped")}
+    except ValueError:
+        return None
 
 
 class _Stop(Exception):

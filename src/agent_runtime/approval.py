@@ -33,7 +33,7 @@ HIGH_PATTERNS = (
     # test/gate configuration and agent permissions, at any depth (S00-05 risk table): they can switch a gate off
     *(p for name in ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", ".coveragerc",
                      "noxfile.py", "pytest.py", "sitecustomize.py", "usercustomize.py") for p in (name, f"*/{name}")),
-    "_pytest/*", "*/_pytest/*", "*.pth", ".claude/*",
+    "_pytest/*", "*/_pytest/*", "pytest/*", "*/pytest/*", "*.pth", ".claude/*",
 )
 TEST_DIR_PATTERNS = ("tests/*", "*/tests/*")
 TEST_MODULE_PATTERNS = ("test_*.py", "*/test_*.py", "*_test.py")
@@ -45,8 +45,9 @@ HIGH_LABELS = frozenset({"risk:high", "contract", "geometry", "permissions"})
 # itself (S00-05 risk table).
 _REMOVED_ASSERT = re.compile(r"^-(?!--)\s*.*\bassert", re.MULTILINE)
 _ADDED_SKIP = re.compile(
-    r"^\+(?!\+\+).*(\bskip\b|\bskipif\b|\bxfail\b|importorskip|pytest\.skip\(|unittest\.skip|SkipTest|pytest\.exit\("
-    r"|__test__\s*=\s*False|collect_ignore|_pytest|\bpytest_\w+|hookimpl)",
+    r"^\+(?!\+\+).*(\bskip\b|\bskipif\b|\bxfail\b|importorskip|pytest\.skip\(|unittest\.skip|SkipTest|expectedFailure"
+    r"|pytest\.exit\(|__test__\s*=\s*False|collect_ignore|_pytest|\bpytest_\w+|hookimpl"
+    r"|os\._exit|sys\.exit|SystemExit|__import__|importlib|getattr\(\s*pytest)",
     re.MULTILINE | re.IGNORECASE)
 
 
@@ -84,15 +85,21 @@ def classify_risk(changed_files: Sequence[str], labels: Iterable[str] = (), *,
     for f in sorted(changed_files):
         info = changes.get(f) or {}
         status, patch = info.get("status"), info.get("patch")
+        previous = info.get("previous_filename")
+        if status == "renamed" and previous and _match(previous, TEST_PATTERNS) and not _match(f, TEST_PATTERNS):
+            high.append(f"test file renamed out of the test folders: {previous} -> {f}")
+            continue
         if not _match(f, TEST_PATTERNS):
-            if _match(f, MEDIUM_FLOOR_PATTERNS):
+            if status == "renamed" and not previous:
+                medium.append(f"rename without previous_filename (origin unknown): {f}")
+            elif _match(f, MEDIUM_FLOOR_PATTERNS):
                 medium.append(f"agent instructions changed: {f}")
             continue
         if weakens_tests(patch):
             high.append(f"patch weakens tests (removed assert or added skip/xfail): {f}")
         if status in ("removed", "renamed"):
             high.append(f"test file {status}: {f}")
-        elif status != "added":
+        elif status != "added" or patch is None:     # GitHub omits the patch of large/binary diffs: unprovable
             medium.append(f"test file modified or not provably new: {f}")
         elif not _match(f, TEST_MODULE_PATTERNS):
             medium.append(f"new file in a test folder that is not a test module: {f}")

@@ -60,7 +60,10 @@ def main(argv: list[str] | None = None) -> int:
             continue
         try:
             req = json.loads(line)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):  # JSONDecodeError, oversized int, deep nesting: answer, never die (R13a)
+            sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": None,
+                                         "error": {"code": -32700, "message": "parse error"}}) + "\n")
+            sys.stdout.flush()
             continue
         try:
             resp = handle(ex, req)
