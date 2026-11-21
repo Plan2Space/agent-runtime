@@ -48,7 +48,7 @@ na máquina de desenvolvimento do Felipe. Tudo abaixo vem de comando executado n
 | `qwen2.5-coder:14b` | `9ec8897f747e` | 9,0 GB | 14.8B Q4_K_M | completion, tools, insert |
 | `nomic-embed-text:latest` | `0a109f422b47` | 274 MB | 137M F16 | embedding |
 
-**Nenhum Llama instalado.** Qwen está presente, Llama exige download (ver "Pedido de autorização").
+**Nenhum Llama instalado no momento do inventário.** Qwen estava presente. O `llama3.1:8b` entrou depois, com autorização (ver adendo).
 
 ## Inferência e latência (temperatura 0, seed 42, `num_ctx` 4096, `qwen3` com `think=false`)
 
@@ -90,15 +90,34 @@ isso.
    medição o SketchUp não estava aberto. Benchmarks pesados (S00-11) não devem rodar junto com render.
 5. **Store no `I:`**: a carga a frio depende do disco (48 s na primeira leitura).
 
-## Pedido de autorização (pendente, Felipe)
+## Autorização e adendo Llama (2026-11-20, 22:09)
 
-1. **Download `llama3.1:8b`** (Ollama library, digest `667b0c1932bc`, 4,92 GB, Q4_K_M; tamanho lido do manifest do
-   registry, sem baixar). Estimativa de VRAM: cerca de 5,5 GiB com ctx 4k e 6,5 GiB com 8k. **Cabe sozinho** com
-   folga nos ~14 GiB livres. **Não cabe junto** com um Qwen 14B (9,9 GiB com 8k), então o benchmark alterna os modelos,
-   como já acontece entre os dois Qwen. Alternativas: `llama3.2:3b` (2,02 GB, cabe junto com um Qwen 14B) ou
-   `llama3.3:70b` (42,5 GB, **não cabe** na VRAM e não é recomendado).
-2. **Apontar o app Ollama para `I:\ollama\models`** (configuração persistente). Sem isso, o `:11434` continua sem
-   modelos, e o runtime dependeria do `serve` temporário em `:11435`.
+O Felipe autorizou as duas ações em 2026-11-20. O estado encontrado ao executá-las:
+
+1. **Local dos modelos no app**: `settings.models` já estava `I:\ollama\models` quando o app foi fechado para a
+   alteração (o app tinha sido reiniciado nesse meio-tempo). A escrita não mudou nada. Backup do `db.sqlite` antes da
+   escrita: `E:\Claude\data\backups\ollama-app-db-2026-11-20\`. Depois de reabrir o app, o `server.log` mostra
+   `OLLAMA_MODELS:I:\ollama\models`, e o `:11434` lista os 4 modelos.
+2. **`llama3.1:8b`**: já estava no store, puxado via `POST /api/pull` às 20:22 (`server.log`), antes desta sessão
+   executar o download. Por isso não foi baixado de novo. O SHA-256 do blob foi recalculado,
+   `667b0c1932bc6ffc593ed1d03f895bf2dc8dc6df21db3042284a6f4416b06a29` (4 920 738 944 bytes), e é **igual** à camada
+   `model` do manifest do registry.
+
+Sonda contra o `:11434` real ([run3](evidence/s00-04-probe-run3-llama.json), mesmos parâmetros):
+
+| Modelo | Carga (wall) | VRAM do modelo | Na GPU | Geração quente (tok/s) | Prompt (tok/s) | Aritmética | Código executado |
+|---|---|---|---|---|---|---|---|
+| llama3.1:8b (8.0B Q4_K_M; completion, tools) | 2,3 s | 5 035 MiB | 100 % | 161,3 | 4 229 | PASS | PASS |
+| qwen3:14b | 2,4 s | 9 209 MiB | 100 % | 89,7 | 3 227 | PASS | PASS |
+| qwen2.5-coder:14b | 4,1 s | 9 041 MiB | 100 % | 90,3 | 4 382 | PASS | PASS |
+
+- **Llama + Qwen 14B também não coexistem**: com o `llama3.1:8b` carregado, pedir o `qwen3:14b` o descarrega
+  (`first_evicted: true`). Juntos dariam cerca de 14,2 GiB, no limite da VRAM livre.
+- Os Qwen deram cerca de 90 tok/s aqui, contra 78–81 nas execuções 1 e 2. A variação entre execuções, com a GPU
+  compartilhada com o desktop, chega a cerca de 15 %. O S00-11 precisa de várias repetições antes de comparar
+  modelos.
+- **Escopo**: isto prova só a inferência. Ferramentas do Harness, testes e correção de código são critério do
+  S00-05/06/11, não deste inventário.
 
 ## Ambiente da medição
 
