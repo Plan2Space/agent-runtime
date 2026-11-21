@@ -7,6 +7,7 @@ Schemas: docs/contracts/agent_event.v1.schema.json, docs/contracts/benchmark_res
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -76,8 +77,8 @@ def _relative(path: object, what: str) -> None:
 def _non_negative(rec: Mapping[str, Any], *keys: str) -> None:
     for k in keys:
         v = rec.get(k)
-        if v is not None and v < 0:
-            raise RecordError(f"field {k!r} must be >= 0")
+        if v is not None and (not math.isfinite(v) or v < 0):
+            raise RecordError(f"field {k!r} must be a finite number >= 0")
 
 
 def validate_agent_event(rec: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -97,8 +98,9 @@ def validate_agent_event(rec: Mapping[str, Any]) -> Mapping[str, Any]:
     _req(rec, "tests", (dict,), nullable=True)
     _req(rec, "evidence", (list,))
     # semantics (S00-05 R1, R2a)
-    if not rec["event_id"].strip():
-        raise RecordError("event_id must not be empty")
+    for k in ("event_id", "run_id", "task_id", "agent", "model", "repo", "worktree"):
+        if not rec[k].strip():
+            raise RecordError(f"field {k!r} must not be empty")
     _utc_ts(rec["ts"])
     if rec["max_attempts"] < 1 or not 0 <= rec["attempt"] <= rec["max_attempts"]:
         raise RecordError(f"attempt {rec['attempt']} outside 0..max_attempts ({rec['max_attempts']})")
@@ -136,6 +138,8 @@ def validate_benchmark_result(rec: Mapping[str, Any]) -> Mapping[str, Any]:
     _check_schema(rec, BENCHMARK_RESULT_SCHEMA)
     for k in ("run_id", "scenario", "backend", "provider", "model", "base_commit", "outcome"):
         _req(rec, k, (str,))
+        if not rec[k].strip():
+            raise RecordError(f"field {k!r} must not be empty")
     if rec["outcome"] not in OUTCOMES:
         raise RecordError(f"unknown outcome {rec['outcome']!r}")
     _req(rec, "repeat", (int,))

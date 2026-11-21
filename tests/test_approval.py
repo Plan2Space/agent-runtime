@@ -34,25 +34,25 @@ def test_other_code_is_medium_and_label_can_raise_to_high():
 
 
 def test_low_with_green_ci_merges_automatically():
-    d = merge_decision(head_sha=H1, risk="LOW", ci_state="success", evidence_valid=True, approvals=[])
+    d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=H1, risk="LOW", ci_state="success", evidence_valid=True, approvals=[])
     assert d.eligible and d.automatic
 
 
 def test_high_needs_human_approval_at_exact_head():
-    assert not merge_decision(head_sha=H1, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[]).eligible
-    d = merge_decision(head_sha=H1, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[rec(H1)])
+    assert not merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=H1, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[]).eligible
+    d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=H1, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[rec(H1)])
     assert d.eligible and not d.automatic and d.approval.head_sha == H1
 
 
 def test_new_commit_invalidates_previous_approval():
-    d = merge_decision(head_sha=H2, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[rec(H1)])
+    d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=H2, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[rec(H1)])
     assert not d.eligible and any("invalidated" in r for r in d.reasons)
 
 
 @pytest.mark.parametrize("ci,evidence", [("failure", True), ("pending", True), ("success", False)])
 def test_failing_ci_or_invalid_evidence_blocks_even_with_approval(ci, evidence):
     for risk in ("LOW", "HIGH"):
-        d = merge_decision(head_sha=H1, risk=risk, ci_state=ci, evidence_valid=evidence, approvals=[rec(H1)])
+        d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=H1, risk=risk, ci_state=ci, evidence_valid=evidence, approvals=[rec(H1)])
         assert not d.eligible
 
 
@@ -154,18 +154,18 @@ def test_comment_that_is_not_an_unambiguous_human_approval_is_ignored(c):
 
 def test_author_can_approve_own_pr_by_comment_and_merge_follows_the_head_rule():
     a = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"})
-    d = merge_decision(head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[a])
+    d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[a])
     assert d.eligible and not d.automatic and d.approval.kind == "comment"
-    stale = merge_decision(head_sha="e" * 40, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[a])
+    stale = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha="e" * 40, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[a])
     assert not stale.eligible and any("invalidated" in r for r in stale.reasons)
 
 
 def test_approval_declaring_a_lower_risk_does_not_cover_the_pr():
     low = from_github_comment(comment(body=f"APROVADO MEDIUM {SHA}"), pr="Plan2Space/agent-runtime#60",
                               approvers={"fmodesto30"})
-    d = merge_decision(head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[low])
+    d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[low])
     assert not d.eligible and any("lower than HIGH" in r for r in d.reasons)
-    ok = merge_decision(head_sha=SHA, risk="MEDIUM", ci_state="success", evidence_valid=True, approvals=[low])
+    ok = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=SHA, risk="MEDIUM", ci_state="success", evidence_valid=True, approvals=[low])
     assert ok.eligible
 
 

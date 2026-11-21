@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -29,18 +30,24 @@ HIGH_PATTERNS = (
     "src/agent_runtime/agents/events.py", "src/agent_runtime/agents/harness.py",
     "src/agent_runtime/agents/mcp_server.py", "src/agent_runtime/outbox_publisher.py", ".github/*",
     "*tolerance*", "*geometry*", "schemas/*",
-    # test/gate configuration and agent permissions (S00-05 risk table): changing them can switch a gate off
-    "conftest.py", "*/conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", "*/pyproject.toml",
-    ".coveragerc", "noxfile.py", ".claude/*",
+    # test/gate configuration and agent permissions, at any depth (S00-05 risk table): they can switch a gate off
+    *(p for name in ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", ".coveragerc",
+                     "noxfile.py", "pytest.py", "sitecustomize.py", "usercustomize.py") for p in (name, f"*/{name}")),
+    "_pytest/*", "*/_pytest/*", "*.pth", ".claude/*",
 )
-TEST_PATTERNS = ("tests/*", "*/tests/*", "test_*.py", "*/test_*.py", "*_test.py")
+TEST_DIR_PATTERNS = ("tests/*", "*/tests/*")
+TEST_MODULE_PATTERNS = ("test_*.py", "*/test_*.py", "*_test.py")
+TEST_PATTERNS = TEST_DIR_PATTERNS + TEST_MODULE_PATTERNS
 MEDIUM_FLOOR_PATTERNS = ("claude.md", "*/claude.md", "agents.md", "*/agents.md")
 LOW_PATTERNS = ("docs/*", "*.md", "benchmark/*/summary.md")
 HIGH_LABELS = frozenset({"risk:high", "contract", "geometry", "permissions"})
-# A patch weakens a test when it drops an assertion or adds a skip/xfail (S00-05 risk table).
+# A test patch weakens or disables tests when it drops an assertion, adds a skip/xfail/exit, or reaches into pytest
+# itself (S00-05 risk table).
 _REMOVED_ASSERT = re.compile(r"^-(?!--)\s*.*\bassert", re.MULTILINE)
-_ADDED_SKIP = re.compile(r"^\+(?!\+\+).*(\bskip\b|\bskipif\b|\bxfail\b|importorskip|pytest\.skip\(|unittest\.skip)",
-                         re.MULTILINE | re.IGNORECASE)
+_ADDED_SKIP = re.compile(
+    r"^\+(?!\+\+).*(\bskip\b|\bskipif\b|\bxfail\b|importorskip|pytest\.skip\(|unittest\.skip|SkipTest|pytest\.exit\("
+    r"|__test__\s*=\s*False|collect_ignore|_pytest|\bpytest_\w+|hookimpl)",
+    re.MULTILINE | re.IGNORECASE)
 
 
 class ApprovalError(ValueError):
@@ -87,6 +94,8 @@ def classify_risk(changed_files: Sequence[str], labels: Iterable[str] = (), *,
             high.append(f"test file {status}: {f}")
         elif status != "added":
             medium.append(f"test file modified or not provably new: {f}")
+        elif not _match(f, TEST_MODULE_PATTERNS):
+            medium.append(f"new file in a test folder that is not a test module: {f}")
     high += [f"label: {lbl}" for lbl in sorted(labels & HIGH_LABELS)]
     if high:
         return "HIGH", high
@@ -136,13 +145,33 @@ def from_github_review(review: Mapping[str, Any], *, pr: str, risk: str) -> Appr
 
 
 # One line, whole line: "APROVADO HIGH <40 hex>" (or APPROVED). The SHA in the text IS the approved HEAD.
-APPROVAL_LINE = re.compile(r"^\s*(?:APROVADO|APPROVED)\s+(LOW|MEDIUM|HIGH)\s+([0-9a-f]{40})\s*$", re.MULTILINE)
+# Separators are ASCII spaces only (S00-05 C9): tab, NBSP or any other Unicode space never forms an approval.
+APPROVAL_LINE = re.compile(r"^ *(?:APROVADO|APPROVED) +(LOW|MEDIUM|HIGH) +([0-9a-f]{40}) *$", re.MULTILINE)
 _LOOSE_APPROVAL = re.compile(r"(?:APROVADO|APPROVED)\s+(?:LOW|MEDIUM|HIGH)\s+[0-9a-fA-F]{7,40}", re.IGNORECASE)
 
 
+def _fold(text: str) -> str:
+    """NFKC, then every Unicode space, control or format (zero-width) character becomes one ASCII space."""
+    t = unicodedata.normalize("NFKC", text)
+    return "".join(" " if unicodedata.category(ch) in ("Zs", "Zl", "Zp", "Cc", "Cf") else ch for ch in t)
+
+
 def contains_approval_grammar(text: str) -> bool:
-    """True for anything resembling an approval line, case-insensitive (S00-05 R16: runtime writers refuse it)."""
-    return bool(_LOOSE_APPROVAL.search(text or ""))
+    """True for anything resembling an approval line (S00-05 R16: runtime writers refuse it). Always wider than
+    ``APPROVAL_LINE``: case-insensitive, short SHAs, and any whitespace/zero-width trick folded first."""
+    return bool(_LOOSE_APPROVAL.search(_fold(text or "")))
+
+
+def payload_contains_approval_grammar(payload: Any) -> bool:
+    """Recursive over the decoded payload: every string value and key is checked."""
+    if isinstance(payload, str):
+        return contains_approval_grammar(payload)
+    if isinstance(payload, Mapping):
+        return any(payload_contains_approval_grammar(k) or payload_contains_approval_grammar(v)
+                   for k, v in payload.items())
+    if isinstance(payload, (list, tuple)):
+        return any(payload_contains_approval_grammar(v) for v in payload)
+    return False
 
 
 def from_github_comment(comment: Mapping[str, Any], *, pr: str, approvers: Iterable[str]) -> ApprovalRecord | None:
@@ -159,7 +188,8 @@ def from_github_comment(comment: Mapping[str, Any], *, pr: str, approvers: Itera
     created, updated = comment.get("created_at"), comment.get("updated_at")
     if not created or (updated and updated != created):
         return None
-    lines = APPROVAL_LINE.findall(str(comment.get("body") or ""))
+    body = str(comment.get("body") or "").replace("\r\n", "\n")   # the GitHub web editor stores CRLF
+    lines = APPROVAL_LINE.findall(body)
     if len(lines) != 1:
         return None
     risk, sha = lines[0]
@@ -177,8 +207,9 @@ class MergeDecision:
     approval: ApprovalRecord | None = None
 
 
-def merge_decision(*, head_sha: str, risk: str, ci_state: str, evidence_valid: bool,
+def merge_decision(*, pr: str, head_sha: str, risk: str, ci_state: str, evidence_valid: bool,
                    approvals: Iterable[ApprovalRecord]) -> MergeDecision:
+    """``pr`` is the PR being merged ("owner/repo#n"): an approval recorded for another PR never counts (R9b)."""
     if risk not in RISKS:
         raise ApprovalError(f"unknown risk {risk!r}")
     reasons: list[str] = []
@@ -191,6 +222,7 @@ def merge_decision(*, head_sha: str, risk: str, ci_state: str, evidence_valid: b
     if risk == "LOW":
         return MergeDecision(True, True, risk, head_sha, ("LOW risk with green CI and valid evidence",))
     approvals = list(approvals)
+    approvals = [a for a in approvals if a.pr == pr]
     at_head = [a for a in approvals if a.head_sha == head_sha]
     current = [a for a in at_head if RISKS.index(a.risk) >= RISKS.index(risk)]   # R9a: MEDIUM does not cover HIGH
     stale = [a for a in approvals if a.head_sha != head_sha]

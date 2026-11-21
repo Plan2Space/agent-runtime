@@ -21,7 +21,7 @@ import subprocess
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -42,6 +42,14 @@ Rules:
 - When all tests pass, answer with a one-paragraph summary and NO tool call."""
 
 LOOP_REPEAT_LIMIT = 4  # identical consecutive tool calls before the harness stops the attempt
+
+# Files that change how pytest runs, protected at any depth whatever the task declares (S00-05 §4 CONTRACT_VIOLATION):
+# a conftest hook or a shadowing pytest.py can turn failing tests green, the hidden evaluator included.
+GATE_FILES = ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", ".coveragerc", "noxfile.py",
+              "pytest.py", "sitecustomize.py", "usercustomize.py")
+GATE_WRITE_DENY = (*(p for n in GATE_FILES for p in (n, f"*/{n}")),
+                   "_pytest", "_pytest/*", "*/_pytest", "*/_pytest/*", "*.pth")
+GATE_PATHSPECS = (*(f":(glob)**/{n}" for n in GATE_FILES), ":(glob)**/_pytest/**", ":(glob)**/*.pth")
 
 
 @dataclass(frozen=True)
@@ -107,7 +115,7 @@ class Harness:
                 **parse_pytest_counts(b.stdout), "passed_all": b.exit_code == 0, "output_tail": out[-4000:]}
 
     def protected_changes(self, task: Task, wt: Path) -> list[str]:
-        r = _git(["status", "--porcelain", "--untracked-files=all", "--", *task.protected], wt)
+        r = _git(["status", "--porcelain", "--untracked-files=all", "--", *task.protected, *GATE_PATHSPECS], wt)
         return [ln[3:] for ln in r.stdout.splitlines() if ln.strip()]
 
     def diff(self, wt: Path) -> str:
@@ -177,7 +185,8 @@ class Harness:
                 state["attempt"] = a
                 emit("ATTEMPT_STARTED", "running")
                 prompt = self._prompt(task, feedback, a)
-                ex = ToolExecutor(ctx.worktree, task.policy, tool_timeout_s=limits.tool_timeout_s, log_path=tool_log,
+                policy = replace(task.policy, write_deny=(*task.policy.write_deny, *GATE_WRITE_DENY))
+                ex = ToolExecutor(ctx.worktree, policy, tool_timeout_s=limits.tool_timeout_s, log_path=tool_log,
                                   clock=self.clock, context={"run_id": ctx.run_id, "attempt": a},
                                   max_calls=limits.max_tool_calls, cancel=cancel)
                 t_a = time.monotonic()

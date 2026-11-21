@@ -62,7 +62,12 @@ def main(argv: list[str] | None = None) -> int:
             req = json.loads(line)
         except json.JSONDecodeError:
             continue
-        resp = handle(ex, req)
+        try:
+            resp = handle(ex, req)
+        except Exception as exc:  # noqa: BLE001 - one bad request must not kill the tool channel (S00-05 R13a)
+            rid = req.get("id") if isinstance(req, dict) else None
+            resp = None if rid is None else {"jsonrpc": "2.0", "id": rid,
+                                             "error": {"code": -32603, "message": f"{type(exc).__name__}: {exc}"[:300]}}
         if resp is not None:
             sys.stdout.write(json.dumps(resp) + "\n")
             sys.stdout.flush()

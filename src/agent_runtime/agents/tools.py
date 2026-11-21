@@ -304,6 +304,8 @@ class ToolExecutor:
             result = ToolResult(call.name, False, str(exc), error_kind="policy")
         except (KeyError, TypeError) as exc:
             result = ToolResult(call.name, False, f"invalid arguments: {exc}", error_kind="invalid_arguments")
+        except ValueError as exc:  # e.g. UnicodeEncodeError/DecodeError caused by the agent's input (S00-05 R13a)
+            result = ToolResult(call.name, False, f"{type(exc).__name__}: {exc}"[:300], error_kind="error")
         except OSError as exc:
             result = ToolResult(call.name, False, f"{type(exc).__name__}: {exc}", error_kind="error")
         self._log(call, result, time.monotonic() - t0)
@@ -322,7 +324,8 @@ class ToolExecutor:
                "ok": result.ok, "error_kind": result.error_kind, "duration_ms": round(duration_s * 1000),
                "data": dict(result.data), "output_head": result.output[:300]}
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.log_path.open("a", encoding="utf-8", newline="\n") as fh:
+        # backslashreplace: an agent argument with a lone surrogate must not crash the log (S00-05 R13a)
+        with self.log_path.open("a", encoding="utf-8", errors="backslashreplace", newline="\n") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
 
     # -- tools --------------------------------------------------------------
