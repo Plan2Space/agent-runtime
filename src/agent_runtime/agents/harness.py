@@ -53,8 +53,8 @@ GATE_FILES = ("conftest.py", "pytest.ini", ".pytest.ini", "pytest.toml", ".pytes
 GATE_PACKAGES = ("pytest", "_pytest")          # a local package of that name shadows the real one under `python -m`
 GATE_WRITE_DENY = (*(p for n in GATE_FILES for p in (n, f"*/{n}")),
                    *(p for n in GATE_PACKAGES for p in (n, f"{n}/*", f"*/{n}", f"*/{n}/*")), "*.pth")
-GATE_PATHSPECS = (*(f":(glob)**/{n}" for n in GATE_FILES), *(f":(glob)**/{n}/**" for n in GATE_PACKAGES),
-                  ":(glob)**/*.pth")
+GATE_PATHSPECS = (*(f":(glob,icase)**/{n}" for n in GATE_FILES), *(f":(glob,icase)**/{n}/**" for n in GATE_PACKAGES),
+                  ":(glob,icase)**/*.pth")
 
 
 @dataclass(frozen=True)

@@ -178,3 +178,21 @@ def test_r4_read_junit_double_counts_call_failure_plus_teardown_error(tmp_path):
     (wt / "src" / "calc" / "__init__.py").write_text(FIX, encoding="utf-8")
     after = h.run_tests(task, wt, 120, min_executed=before["executed"] or 1)
     assert after["passed_all"], (before["executed"], after["executed"])   # 1 test, fully fixed
+
+
+def test_protected_detection_and_write_deny_ignore_case_on_every_os(tmp_path):
+    # CI on Linux found the deny list was case-sensitive there; a case-insensitive FS (macOS) would let Pytest/ shadow
+    # pytest. Both the write deny (fnmatch) and the protected pathspecs (git) must ignore case everywhere (S00-05 R15).
+    from agent_runtime.agents.harness import GATE_WRITE_DENY
+    from agent_runtime.agents.tools import ToolExecutor, ToolPolicy
+    ex = ToolExecutor(tmp_path, ToolPolicy(enabled=frozenset({"write_file"}), write_deny=GATE_WRITE_DENY))
+    for p in ("Pytest/__init__.py", "src/_PYTEST/x.py", "CONFTEST.PY", "Tests/PyTest.Ini", "a/Setup.Cfg"):
+        r = ex.execute(ToolCall("write_file", {"path": p, "content": "x"}))
+        assert not r.ok and r.error_kind == "policy", p
+    task = _task(tmp_path / "t")
+    h = Harness(sampler_factory=NullSampler)
+    wt = tmp_path / "wt"
+    h.prepare_worktree(task, wt)
+    (wt / "sub").mkdir()
+    (wt / "sub" / "CONFTEST.PY").write_text("x = 1\n", encoding="utf-8")
+    assert any("conftest" in p.lower() for p in h.protected_changes(task, wt))

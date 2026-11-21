@@ -266,8 +266,9 @@ class ToolExecutor:
         except ValueError:
             raise PolicyViolation(f"path escapes the workspace: {rel!r}") from None
         self._no_links(self.root / p)
+        low = rel_posix.lower()          # case-insensitive on every OS: Pytest/ shadows pytest on macOS/Windows (R15)
         for pattern in deny:
-            if rel_posix == pattern or fnmatch.fnmatch(rel_posix, pattern):
+            if low == pattern.lower() or fnmatch.fnmatchcase(low, pattern.lower()):
                 raise PolicyViolation(f"path {rel_posix!r} is denied by policy ({pattern})")
         return target
 
