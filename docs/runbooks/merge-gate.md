@@ -9,10 +9,10 @@ de PR **LOW** (só documentação não executável). MEDIUM e HIGH nunca são me
 Sempre de dentro do repositório, com o venv dele. O padrão é **dry-run**: decide e grava o fato, sem mergear.
 
 ```powershell
-.venv\Scripts\python.exe scripts\merge_gate.py --repo Plan2Space/agent-runtime --pr <n> --store <events.sqlite> --approver fmodesto30 --log <gate.jsonl>
+.venv\Scripts\python.exe scripts\merge_gate.py --repo Plan2Space/agent-runtime --pr <n> --store <events.sqlite> --approver <login> --log <gate.jsonl>
 ```
 
-Para mergear de verdade (só LOW), acrescente `--execute`.
+Para mergear de verdade (só LOW), acrescente `--execute`. `--approver` é configuração (repita para vários logins humanos); sem aprovador configurado nenhuma aprovação conta.
 
 ## O que cada estado quer dizer
 
