@@ -268,7 +268,7 @@ def test_test_run_whose_tree_survived_is_infra(task, tmp_path, monkeypatch):
 def test_unexpected_harness_error_is_recorded_as_infra_with_evidence(task, tmp_path, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("disk vanished")
-    monkeypatch.setattr(harness_mod.Harness, "evaluate_hidden", boom)
+    monkeypatch.setattr(harness_mod.Harness, "evaluate_isolated", boom)
     res = _h().run(task, Scripted([write(FIXED), "ok"]), Limits(), _ctx(tmp_path))
     assert res["outcome"] == "INFRA_FAILURE" and "disk vanished" in res["error"]
     assert (tmp_path / "out" / "r1" / "result.json").is_file()

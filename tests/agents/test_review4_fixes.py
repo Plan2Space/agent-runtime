@@ -62,17 +62,9 @@ FAKE_REPORT = (
 )
 
 
-FAKE_REPORT_WITH_CASES = FAKE_REPORT.replace(
-    '<testsuite tests=\\"5\\" failures=\\"0\\" errors=\\"0\\" skipped=\\"0\\"/>',
-    '<testsuite tests=\\"1\\" failures=\\"0\\" errors=\\"0\\" skipped=\\"0\\"><testcase classname=\\"t\\" name=\\"t\\"/></testsuite>')
-
-
-@pytest.mark.xfail(strict=True, reason="accepted limit (S00-05): code under test can forge the report from inside "
-                                       "pytest; only an out-of-process evaluator closes it")
-def test_r4_residual_forged_report_with_test_cases_still_succeeds(tmp_path):
-    assert FAKE_REPORT_WITH_CASES != FAKE_REPORT
-    res = _run(tmp_path, [[ToolCall("write_file", {"path": "src/calc/__init__.py", "content": FAKE_REPORT_WITH_CASES})]])
-    assert res["outcome"] != "SUCCESS"
+# The forged report WITH <testcase> entries is exercised in tests/agents/test_isolated_evaluator.py (forged_report,
+# forged_report_expected_names). The strict xfail that stood here never ran the attack: its text substitution did not
+# match, so it failed on its own guard assert. Removed instead of kept as false documentation.
 
 
 def test_r4_residual_in_process_fake_junit_report(tmp_path):

@@ -17,7 +17,10 @@ def test_docs_and_new_tests_only_is_low():
     # Changed on purpose (review of #60, S00-05 risk table): a test file is LOW only when it is provably NEW and
     # does not weaken anything. Without status/patch it is MEDIUM.
     new = {"tests/test_a.py": {"status": "added", "patch": "+def test_a():\n+    assert f() == 1"}}
-    assert classify_risk(["docs/x.md", "tests/test_a.py"], file_changes=new)[0] == "LOW"
+    # Changed again on purpose (human decision 2026-11-21, S00-05): executable code is never LOW, not even a new test.
+    assert classify_risk(["docs/x.md", "tests/test_a.py"], file_changes=new)[0] == "MEDIUM"
+    assert classify_risk(["docs/x.md", "docs/guide.rst"])[0] == "LOW"
+    assert classify_risk(["docs/conf.py"])[0] == "MEDIUM"          # executable even under docs/
     assert classify_risk(["docs/x.md", "tests/test_a.py"])[0] == "MEDIUM"
 
 

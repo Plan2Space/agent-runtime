@@ -25,12 +25,14 @@ def test_baseline_fails_and_reference_passes_visible_and_hidden(s, tmp_path):
     h.prepare_worktree(task, wt)
     before = h.run_tests(task, wt, 60)
     assert before["exit_code"] == 1 and before["failed"] >= 1
-    hidden_before = h.evaluate_hidden(task, wt, 60)
-    assert not hidden_before["passed_all"]
+    iso_before = h.evaluate_isolated(task, wt, 60)
+    assert not iso_before["visible"]["passed_all"] and not iso_before["hidden"]["passed_all"]
     shutil.copytree(s.reference / "src", wt / "src", dirs_exist_ok=True)
     after = h.run_tests(task, wt, 60)
     assert after["passed_all"], after["output_tail"]
-    assert h.evaluate_hidden(task, wt, 60)["passed_all"]
+    iso = h.evaluate_isolated(task, wt, 60, min_visible=before["executed"] or 1)
+    assert iso["visible"]["passed_all"], iso["visible"]["output_tail"]       # the judge never imports the agent's code
+    assert iso["hidden"]["passed_all"], iso["hidden"]["output_tail"]
     assert h.protected_changes(task, wt) == []
     h.remove_worktree(task, wt)
 

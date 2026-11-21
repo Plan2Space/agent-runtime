@@ -32,6 +32,7 @@ from .contract import (BackendError, BackendUnavailable, ChatBackend, Delegating
                        ToolSpec)
 from .events import AGENT_EVENT_SCHEMA, JsonlSink
 from .resources import ResourceSampler
+from .isolated_eval import HIDDEN_DIR, ISOLATION_MARK, IsolatedTree, expected_tests, pytest_invocation
 from .tools import ToolExecutor, ToolPolicy, parse_pytest_counts, run_bounded, scrubbed_env
 
 SYSTEM_PROMPT = """You are a software engineering agent working inside a git workspace.
@@ -256,13 +257,17 @@ class Harness:
                 outcome = "BLOCKED"
                 error = f"tests still failing after {limits.max_attempts} attempts"
                 raise _Stop
-            hidden = self.evaluate_hidden(task, ctx.worktree, limits.tool_timeout_s)
-            late = self.protected_changes(task, ctx.worktree)
-            if late:
-                violations.append(f"protected paths created during the hidden evaluation: {late}")
+            iso = self.evaluate_isolated(task, ctx.worktree, limits.tool_timeout_s,
+                                         min_visible=tests_before.get("executed") or 1)
+            hidden = iso.get("hidden")
+            manifest["isolated_evaluation"] = {k: _slim_iso(v) for k, v in iso.items()}
+            if any(r.get("isolation_violation") for r in (iso["visible"], hidden or {})):
+                violations.append("evaluated code attempted an operation the isolated evaluator forbids")
                 outcome, error = "CONTRACT_VIOLATION", violations[-1]
-                raise _Stop
-            if hidden is not None and not hidden["passed_all"]:
+            elif not iso["visible"]["passed_all"]:
+                outcome, error = "FUNCTIONAL_FAILURE", ("isolated evaluation of the visible tests rejects the change "
+                                                        "(the workspace result is not trusted)")
+            elif hidden is not None and not hidden["passed_all"]:
                 outcome, error = "FUNCTIONAL_FAILURE", "visible tests pass but hidden evaluator rejects the change"
             else:
                 outcome = "SUCCESS"
@@ -432,19 +437,45 @@ class Harness:
                         "mcp_status": r.raw.get("mcp_status"), "launches": r.raw.get("launches")}}
 
     # ------------------------------------------------------------------ evaluator
-    def evaluate_hidden(self, task: Task, wt: Path, timeout_s: float) -> dict | None:
-        """Deterministic evaluator: hidden tests copied in only after the agent stopped."""
-        if task.hidden_tests is None:
-            return None
-        dest_dir = wt / "_hidden_eval"
-        dest_dir.mkdir(exist_ok=True)
-        dest = dest_dir / task.hidden_tests.name
-        shutil.copy2(task.hidden_tests, dest)
-        argv = [*task.policy.test_argv[:-1], str(dest_dir)] if task.policy.test_argv else []
+    def evaluate_isolated(self, task: Task, wt: Path, timeout_s: float, min_visible: int = 1) -> dict:
+        """The verdict (S00-05 §4 isolated evaluator): trusted visible tests from the base commit and the protected hidden
+        tests run in a judge process that never imports the agent's code; the agent's src/ runs in an audited child."""
+        inv = pytest_invocation(task.policy.test_argv)
+        if inv is None:
+            raise _Infra("isolated evaluator needs a '<python> -m pytest ...' test command")
+        python, args = inv
+        test_paths = [a for a in args if not a.startswith("-") and (wt / a).exists()] or ["tests"]
+        options = [a for a in args if a not in test_paths]
+        tree = IsolatedTree(task.repo_dir, task.base_commit, wt, GATE_WRITE_DENY)
         try:
-            return self.run_tests(task, wt, timeout_s, argv=argv)
+            visible_files = [f for t in test_paths for f in sorted((tree.tree / t).rglob("test*.py"))]
+            runs = {"visible": (test_paths, expected_tests(visible_files), min_visible)}
+            if task.hidden_tests is not None:
+                (tree.tree / HIDDEN_DIR).mkdir()
+                shutil.copyfile(task.hidden_tests, tree.tree / HIDDEN_DIR / task.hidden_tests.name)
+                runs["hidden"] = ([HIDDEN_DIR], expected_tests([task.hidden_tests]), 1)
+            out: dict = {"copied": list(tree.copied), "top": list(tree.top)}
+            for name, (paths, expected, floor) in runs.items():
+                junit = tree.root / f"junit_{name}.xml"
+                judge = tree.scripts(junit, timeout_s)
+                b = run_bounded([python, "-I", "-B", str(judge), *options, *paths], tree.tree, timeout_s, scrubbed_env())
+                if b.kill_failed:
+                    raise _Infra("isolated evaluator process tree could not be stopped (kill_failed)")
+                if b.exit_code in (3, 4):
+                    raise _Infra(f"isolated evaluator could not run pytest (exit {b.exit_code}): {b.stderr[-300:]}")
+                report = _read_junit(junit)
+                missing = sorted(n for n in expected if report is None or n not in report["names"])
+                executed = None if report is None else report["executed"]
+                passed = (b.exit_code == 0 and report is not None and report["failing"] == 0
+                          and report["suite_bad"] == 0 and not missing and executed >= max(floor, 1))
+                out[name] = {"exit_code": b.exit_code, "timed_out": b.timed_out, "duration_s": round(b.duration_s, 3),
+                             **parse_pytest_counts(b.stdout), "passed_all": passed, "executed": executed,
+                             "junit": report is not None, "missing_tests": missing,
+                             "isolation_violation": bool(report and report["isolation"]) or ISOLATION_MARK in b.stderr,
+                             "output_tail": (b.stdout + "\n" + b.stderr)[-4000:]}
+            return out
         finally:
-            shutil.rmtree(dest_dir, ignore_errors=True)
+            tree.remove()
 
     # ------------------------------------------------------------------ event store (optional)
     def _store_open(self, task: Task, ctx: RunContext, info) -> dict | None:
@@ -465,6 +496,13 @@ class Harness:
             self.store.fail(ev, f"{result['outcome']}: {result.get('error')}")
 
 
+def _slim_iso(v):
+    if not isinstance(v, dict):
+        return v
+    return {k: v.get(k) for k in ("exit_code", "timed_out", "passed", "failed", "errors", "skipped", "passed_all",
+                                  "executed", "junit", "missing_tests", "isolation_violation", "duration_s")}
+
+
 def _read_junit(path: Path) -> dict | None:
     """Totals of a pytest JUnit report, or None when it is missing or unreadable (= tests did not provably run)."""
     try:
@@ -479,14 +517,19 @@ def _read_junit(path: Path) -> dict | None:
     except ValueError:
         return None
     # Distinct cases: pytest writes a second <testcase> for a call failure followed by a teardown error.
-    executed, failing = set(), set()
+    executed, failing, names, isolation = set(), set(), {}, False
     for case in root.iter("testcase"):
         key = (case.get("classname", ""), case.get("name", ""))
-        if case.find("failure") is not None or case.find("error") is not None:
+        bad = [c for c in (case.find("failure"), case.find("error")) if c is not None]
+        if bad:
             failing.add(key)
+            isolation = isolation or any(ISOLATION_MARK in ((c.get("message") or "") + (c.text or "")) for c in bad)
         if case.find("skipped") is None:
             executed.add(key)
-    return {"executed": len(executed), "failing": len(failing), "suite_bad": suite_bad}
+        base = key[1].split("[", 1)[0]
+        names[base] = names.get(base, False) or bool(bad)
+    return {"executed": len(executed), "failing": len(failing), "suite_bad": suite_bad, "names": names,
+            "isolation": isolation}
 
 
 class _Stop(Exception):

@@ -41,6 +41,8 @@ TEST_MODULE_PATTERNS = ("test_*.py", "*/test_*.py", "*_test.py")
 TEST_PATTERNS = TEST_DIR_PATTERNS + TEST_MODULE_PATTERNS
 MEDIUM_FLOOR_PATTERNS = ("claude.md", "*/claude.md", "agents.md", "*/agents.md")
 LOW_PATTERNS = ("docs/*", "*.md", "benchmark/*/summary.md")
+# LOW is only for files nothing executes (S00-05 risk table): code run by tests can sabotage pytest in CI too.
+NON_EXECUTABLE_SUFFIXES = (".md", ".rst", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf")
 HIGH_LABELS = frozenset({"risk:high", "contract", "geometry", "permissions"})
 # A test patch weakens or disables tests when it drops an assertion, adds a skip/xfail/exit, or reaches into pytest
 # itself (S00-05 risk table).
@@ -111,13 +113,16 @@ def classify_risk(changed_files: Sequence[str], labels: Iterable[str] = (), *,
             medium.append(f"test file modified or not provably new: {f}")
         elif not _match(f, TEST_MODULE_PATTERNS):
             medium.append(f"new file in a test folder that is not a test module: {f}")
+        else:
+            medium.append(f"new test module: executable code is never LOW: {f}")
     high += [f"label: {lbl}" for lbl in sorted(labels & HIGH_LABELS)]
     if high:
         return "HIGH", high
     if medium:
         return "MEDIUM", medium
-    if changed_files and all(_match(f, LOW_PATTERNS) or _match(f, TEST_PATTERNS) for f in changed_files):
-        return "LOW", ["only docs and new, non-weakening tests"]
+    if changed_files and all(_match(f, LOW_PATTERNS) and _norm(f).endswith(NON_EXECUTABLE_SUFFIXES)
+                             for f in changed_files):
+        return "LOW", ["only non-executable docs"]
     return "MEDIUM", ["code change outside the LOW allowlist" if changed_files else "empty change set"]
 
 

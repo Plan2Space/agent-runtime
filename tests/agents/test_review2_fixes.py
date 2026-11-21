@@ -207,7 +207,8 @@ def test_validator_rejects_empty_required_strings_and_non_finite_numbers(over):
         validate_agent_event({**e, **over})
 
 
-def test_ordinary_new_test_module_is_still_low():
+def test_ordinary_new_test_module_is_medium_not_low():
     f = "tests/test_new.py"
     patch = "@@ -0,0 +1,3 @@\n+from calc import add\n+def test_add_zero():\n+    assert add(0, 0) == 0\n"
-    assert classify_risk([f], file_changes={f: {"status": "added", "patch": patch}})[0] == "LOW"
+    # was LOW; the human decision of 2026-11-21 (S00-05) makes every executable change at least MEDIUM
+    assert classify_risk([f], file_changes={f: {"status": "added", "patch": patch}})[0] == "MEDIUM"
