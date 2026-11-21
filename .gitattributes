@@ -1,1 +1,4 @@
 benchmark/scenarios/** text eol=lf
+benchmark/claude/** -text
+benchmark/qwen/** -text
+benchmark/llama/** -text

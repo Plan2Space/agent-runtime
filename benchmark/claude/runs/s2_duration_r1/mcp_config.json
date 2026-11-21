@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "harness": {
+      "command": "E:\\Claude\\worktrees\\p2s-b-agents\\.venv\\Scripts\\python.exe",
+      "args": [
+        "-I",
+        "-m",
+        "agent_runtime.agents.mcp_server",
+        "--workspace",
+        "I:\\p2s-b-bench\\w2\\wt\\claude\\s2_duration_r1",
+        "--policy",
+        "E:\\Claude\\worktrees\\p2s-b-agents\\benchmark\\claude\\runs\\s2_duration_r1\\policy.json",
+        "--log",
+        "E:\\Claude\\worktrees\\p2s-b-agents\\benchmark\\claude\\runs\\s2_duration_r1\\tool_calls.jsonl",
+        "--tool-timeout",
+        "120",
+        "--context",
+        "E:\\Claude\\worktrees\\p2s-b-agents\\benchmark\\claude\\runs\\s2_duration_r1\\tool_context_1.json"
+      ]
+    }
+  }
+}

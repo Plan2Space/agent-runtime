@@ -1,0 +1,99 @@
+{
+  "schema": "benchmark_result/1.0",
+  "run_id": "claude-s3_inventory-r3",
+  "scenario": "s3_inventory",
+  "repeat": 3,
+  "backend": "claude",
+  "provider": "claude-code-cli",
+  "model": "claude-sonnet-5-5",
+  "model_digest": null,
+  "quantization": null,
+  "base_commit": "87f2bcabdf9f1e899e4f1dea5a599b21239e1849",
+  "outcome": "SUCCESS",
+  "functional_success": true,
+  "infra_failure": false,
+  "human_intervention": false,
+  "error": null,
+  "attempts": 1,
+  "duration_s": 13.297,
+  "tool_calls": 9,
+  "tool_errors": 0,
+  "policy_refusals": 0,
+  "tool_usage": {
+    "list_files": 1,
+    "read_file": 2,
+    "replace_in_file": 4,
+    "run_tests": 2
+  },
+  "tests_before": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 1,
+    "failed": 3,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.453
+  },
+  "tests_after": {
+    "exit_code": 0,
+    "timed_out": false,
+    "passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": true,
+    "duration_s": 0.391
+  },
+  "hidden_tests": {
+    "exit_code": 0,
+    "timed_out": false,
+    "passed": 8,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": true,
+    "duration_s": 0.437
+  },
+  "tokens": {
+    "prompt": 17091,
+    "completion": 1147,
+    "measured": true
+  },
+  "resources": {
+    "scope": "system-wide (GPU and RAM are shared with the desktop and other processes)",
+    "gpu_mem_used_mib": {
+      "max": 12902.0,
+      "mean": 12902.0,
+      "samples": 7
+    },
+    "gpu_util_pct": {
+      "max": 97.0,
+      "mean": 56.1,
+      "samples": 7
+    },
+    "ram_used_mib": {
+      "max": 23724.9,
+      "mean": 23403.2,
+      "samples": 7
+    },
+    "cpu_busy_pct_mean": 26.2
+  },
+  "contract_violations": [],
+  "diff": {
+    "files": [
+      "src/inventory/models.py",
+      "src/inventory/store.py"
+    ],
+    "lines_added": 7,
+    "lines_removed": 4,
+    "sha256": "68f9262d5c1d3a96e8be0fb444fd0b4babc611d39c56e53cbd5d69c5caf51fb0"
+  },
+  "evidence": {
+    "run_manifest": "run_manifest.json",
+    "tool_calls": "tool_calls.jsonl",
+    "events": "events.jsonl",
+    "patch": "changes.patch",
+    "attempts": "attempts/"
+  }
+}

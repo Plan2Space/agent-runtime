@@ -1,0 +1,236 @@
+[
+  {
+    "run_id": "llama-s1_paginate-r1",
+    "scenario": "s1_paginate",
+    "repeat": 1,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 2,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.422
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 2,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.453
+    },
+    "hidden": null
+  },
+  {
+    "run_id": "llama-s1_paginate-r2",
+    "scenario": "s1_paginate",
+    "repeat": 2,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 2,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.454
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 2,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.422
+    },
+    "hidden": null
+  },
+  {
+    "run_id": "llama-s1_paginate-r3",
+    "scenario": "s1_paginate",
+    "repeat": 3,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 2,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.453
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 2,
+      "failed": 2,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.421
+    },
+    "hidden": null
+  },
+  {
+    "run_id": "llama-s2_duration-r1",
+    "scenario": "s2_duration",
+    "repeat": 1,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 0,
+      "failed": 4,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.437
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 0,
+      "failed": 4,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.438
+    },
+    "hidden": null
+  },
+  {
+    "run_id": "llama-s2_duration-r2",
+    "scenario": "s2_duration",
+    "repeat": 2,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 0,
+      "failed": 4,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.438
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 0,
+      "failed": 4,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.438
+    },
+    "hidden": null
+  },
+  {
+    "run_id": "llama-s2_duration-r3",
+    "scenario": "s2_duration",
+    "repeat": 3,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 0,
+      "failed": 4,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.484
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 0,
+      "failed": 4,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.468
+    },
+    "hidden": null
+  },
+  {
+    "run_id": "llama-s3_inventory-r1",
+    "scenario": "s3_inventory",
+    "repeat": 1,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 1,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.437
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 1,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.453
+    },
+    "hidden": null
+  },
+  {
+    "run_id": "llama-s3_inventory-r2",
+    "scenario": "s3_inventory",
+    "repeat": 2,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 1,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.437
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 1,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.453
+    },
+    "hidden": null
+  },
+  {
+    "run_id": "llama-s3_inventory-r3",
+    "scenario": "s3_inventory",
+    "repeat": 3,
+    "before": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 1,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.453
+    },
+    "after": {
+      "exit_code": 1,
+      "timed_out": false,
+      "passed": 1,
+      "failed": 3,
+      "errors": 0,
+      "skipped": 0,
+      "passed_all": false,
+      "duration_s": 0.438
+    },
+    "hidden": null
+  }
+]

@@ -1,0 +1,202 @@
+### run qwen-s1_paginate-r1 outcome=SUCCESS
+diff --git a/src/pager/__init__.py b/src/pager/__init__.py
+index 1250bbc..625958a 100644
+--- a/src/pager/__init__.py
++++ b/src/pager/__init__.py
+@@ -10,7 +10,7 @@ def paginate(items, page, per_page):
+     """
+     if page < 1 or per_page < 1:
+         raise ValueError("page and per_page must be >= 1")
+-    start = page * per_page
++    start = (page - 1) * per_page
+     return list(items[start:start + per_page])
+ 
+ 
+### run qwen-s1_paginate-r2 outcome=SUCCESS
+diff --git a/src/pager/__init__.py b/src/pager/__init__.py
+index 1250bbc..625958a 100644
+--- a/src/pager/__init__.py
++++ b/src/pager/__init__.py
+@@ -10,7 +10,7 @@ def paginate(items, page, per_page):
+     """
+     if page < 1 or per_page < 1:
+         raise ValueError("page and per_page must be >= 1")
+-    start = page * per_page
++    start = (page - 1) * per_page
+     return list(items[start:start + per_page])
+ 
+ 
+### run qwen-s1_paginate-r3 outcome=SUCCESS
+diff --git a/src/pager/__init__.py b/src/pager/__init__.py
+index 1250bbc..625958a 100644
+--- a/src/pager/__init__.py
++++ b/src/pager/__init__.py
+@@ -10,7 +10,7 @@ def paginate(items, page, per_page):
+     """
+     if page < 1 or per_page < 1:
+         raise ValueError("page and per_page must be >= 1")
+-    start = page * per_page
++    start = (page - 1) * per_page
+     return list(items[start:start + per_page])
+ 
+ 
+### run qwen-s2_duration-r1 outcome=BLOCKED
+diff --git a/src/durations/__init__.py b/src/durations/__init__.py
+index a91b06e..f7f27c2 100644
+--- a/src/durations/__init__.py
++++ b/src/durations/__init__.py
+@@ -2,9 +2,9 @@
+ 
+ import re
+ 
+-_PATTERN = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?")
++_PATTERN = re.compile(r"^\s*((\d+)h)?((\d+)m)?((\d+)s)?\s*$")
+ 
+-_UNIT_SECONDS = {"h": 3600, "m": 3600, "s": 1}
++_UNIT_SECONDS = {"h": 3600, "m": 60, "s": 1}
+ 
+ 
+ def parse_duration(text):
+@@ -18,7 +18,7 @@ def parse_duration(text):
+     match = _PATTERN.match(text)
+     if not match or not any(match.groups()):
+         raise ValueError(f"invalid duration: {text!r}")
+-    hours, minutes, seconds = (int(g) if g else 0 for g in match.groups())
++    hours, minutes, seconds = (int(match.group(i)) if match.group(i) else 0 for i in range(1, 4))
+     return hours * _UNIT_SECONDS["h"] + minutes * _UNIT_SECONDS["m"] + seconds * _UNIT_SECONDS["s"]
+ 
+ 
+### run qwen-s2_duration-r2 outcome=SUCCESS
+diff --git a/src/durations/__init__.py b/src/durations/__init__.py
+index a91b06e..ae0ea0e 100644
+--- a/src/durations/__init__.py
++++ b/src/durations/__init__.py
+@@ -2,9 +2,9 @@
+ 
+ import re
+ 
+-_PATTERN = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?")
++_PATTERN = re.compile(r"^\s*(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?\s*$", re.IGNORECASE | re.UNICODE)
+ 
+-_UNIT_SECONDS = {"h": 3600, "m": 3600, "s": 1}
++_UNIT_SECONDS = {"h": 3600, "m": 60, "s": 1}
+ 
+ 
+ def parse_duration(text):
+### run qwen-s2_duration-r3 outcome=BLOCKED
+diff --git a/src/durations/__init__.py b/src/durations/__init__.py
+index a91b06e..2bfed93 100644
+--- a/src/durations/__init__.py
++++ b/src/durations/__init__.py
+@@ -2,9 +2,9 @@
+ 
+ import re
+ 
+-_PATTERN = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?")
++_PATTERN = re.compile(r"^\s*(?:(\d+)([hmsHMS]))?\s*(?:(\d+)([hmsHMS]))?\s*(?:(\d+)([hmsHMS]))?\s*$")
+ 
+-_UNIT_SECONDS = {"h": 3600, "m": 3600, "s": 1}
++_UNIT_SECONDS = {"h": 3600, "m": 60, "s": 1}
+ 
+ 
+ def parse_duration(text):
+@@ -18,7 +18,7 @@ def parse_duration(text):
+     match = _PATTERN.match(text)
+     if not match or not any(match.groups()):
+         raise ValueError(f"invalid duration: {text!r}")
+-    hours, minutes, seconds = (int(g) if g else 0 for g in match.groups())
++    hours, minutes, seconds = (int(match.group(1)) if match.group(1) else 0, int(match.group(3)) if match.group(3) else 0, int(match.group(5)) if match.group(5) else 0)
+     return hours * _UNIT_SECONDS["h"] + minutes * _UNIT_SECONDS["m"] + seconds * _UNIT_SECONDS["s"]
+ 
+ 
+### run qwen-s3_inventory-r1 outcome=FUNCTIONAL_FAILURE
+diff --git a/src/inventory/models.py b/src/inventory/models.py
+index 47afc64..c6e6a7b 100644
+--- a/src/inventory/models.py
++++ b/src/inventory/models.py
+@@ -16,4 +16,4 @@ class Reservation:
+ 
+     def active(self, now):
+         """A reservation holds stock strictly before its expiry time and not after."""
+-        return now >= self.expires_at
++        return now < self.expires_at
+diff --git a/src/inventory/store.py b/src/inventory/store.py
+index 57221a7..d10b19f 100644
+--- a/src/inventory/store.py
++++ b/src/inventory/store.py
+@@ -30,7 +30,7 @@ class Inventory:
+         """
+         if qty < 1 or ttl <= 0:
+             raise ValueError("qty must be >= 1 and ttl > 0")
+-        if qty > self._stock.get(sku, 0):
++        if qty > self.available(sku):
+             raise OutOfStock(sku)
+         self._seq += 1
+         rid = f"r{self._seq}"
+@@ -47,4 +47,4 @@ class Inventory:
+ 
+     def release(self, rid):
+         """Cancel a reservation, freeing its units. Unknown ids are ignored (idempotent)."""
+-        self._reservations.pop(rid)
++        self._reservations.pop(rid, None)
+### run qwen-s3_inventory-r2 outcome=FUNCTIONAL_FAILURE
+diff --git a/src/inventory/models.py b/src/inventory/models.py
+index 47afc64..c6e6a7b 100644
+--- a/src/inventory/models.py
++++ b/src/inventory/models.py
+@@ -16,4 +16,4 @@ class Reservation:
+ 
+     def active(self, now):
+         """A reservation holds stock strictly before its expiry time and not after."""
+-        return now >= self.expires_at
++        return now < self.expires_at
+diff --git a/src/inventory/store.py b/src/inventory/store.py
+index 57221a7..d10b19f 100644
+--- a/src/inventory/store.py
++++ b/src/inventory/store.py
+@@ -30,7 +30,7 @@ class Inventory:
+         """
+         if qty < 1 or ttl <= 0:
+             raise ValueError("qty must be >= 1 and ttl > 0")
+-        if qty > self._stock.get(sku, 0):
++        if qty > self.available(sku):
+             raise OutOfStock(sku)
+         self._seq += 1
+         rid = f"r{self._seq}"
+@@ -47,4 +47,4 @@ class Inventory:
+ 
+     def release(self, rid):
+         """Cancel a reservation, freeing its units. Unknown ids are ignored (idempotent)."""
+-        self._reservations.pop(rid)
++        self._reservations.pop(rid, None)
+### run qwen-s3_inventory-r3 outcome=FUNCTIONAL_FAILURE
+diff --git a/src/inventory/models.py b/src/inventory/models.py
+index 47afc64..c6e6a7b 100644
+--- a/src/inventory/models.py
++++ b/src/inventory/models.py
+@@ -16,4 +16,4 @@ class Reservation:
+ 
+     def active(self, now):
+         """A reservation holds stock strictly before its expiry time and not after."""
+-        return now >= self.expires_at
++        return now < self.expires_at
+diff --git a/src/inventory/store.py b/src/inventory/store.py
+index 57221a7..e3ef7a1 100644
+--- a/src/inventory/store.py
++++ b/src/inventory/store.py
+@@ -30,7 +30,7 @@ class Inventory:
+         """
+         if qty < 1 or ttl <= 0:
+             raise ValueError("qty must be >= 1 and ttl > 0")
+-        if qty > self._stock.get(sku, 0):
++        if qty > self.available(sku):
+             raise OutOfStock(sku)
+         self._seq += 1
+         rid = f"r{self._seq}"
+@@ -47,4 +47,5 @@ class Inventory:
+ 
+     def release(self, rid):
+         """Cancel a reservation, freeing its units. Unknown ids are ignored (idempotent)."""
+-        self._reservations.pop(rid)
++        if rid in self._reservations:
++            self._reservations.pop(rid)

@@ -1,0 +1,30 @@
+diff --git a/src/inventory/models.py b/src/inventory/models.py
+index 47afc64..c6e6a7b 100644
+--- a/src/inventory/models.py
++++ b/src/inventory/models.py
+@@ -16,4 +16,4 @@ class Reservation:
+ 
+     def active(self, now):
+         """A reservation holds stock strictly before its expiry time and not after."""
+-        return now >= self.expires_at
++        return now < self.expires_at
+diff --git a/src/inventory/store.py b/src/inventory/store.py
+index 57221a7..e3ef7a1 100644
+--- a/src/inventory/store.py
++++ b/src/inventory/store.py
+@@ -30,7 +30,7 @@ class Inventory:
+         """
+         if qty < 1 or ttl <= 0:
+             raise ValueError("qty must be >= 1 and ttl > 0")
+-        if qty > self._stock.get(sku, 0):
++        if qty > self.available(sku):
+             raise OutOfStock(sku)
+         self._seq += 1
+         rid = f"r{self._seq}"
+@@ -47,4 +47,5 @@ class Inventory:
+ 
+     def release(self, rid):
+         """Cancel a reservation, freeing its units. Unknown ids are ignored (idempotent)."""
+-        self._reservations.pop(rid)
++        if rid in self._reservations:
++            self._reservations.pop(rid)

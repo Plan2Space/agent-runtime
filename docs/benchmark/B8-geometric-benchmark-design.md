@@ -3,6 +3,10 @@
 Estado: preparado. Execução bloqueada até a Frente A publicar o motor (`Plan2Space/sketchup-mcp-next`) e a interface
 fixture/executor/validador no `engineering-specs`. Nada aqui foi rodado.
 
+Interface publicada pela Frente A: `Plan2Space/engineering-specs@5ea82f612f33b8f1bd26d54062d9573c6af939b0`
+`plan2space/P2S-CONTRACTS-v1.md` (servidor MCP `p2s-engine`, tool `build_room`, sucesso só com
+`validation_report.verdict == "PASS"`). Falta o motor rodando para executar.
+
 ## Entrada que falta (dona: Frente A)
 
 - Fixture `room_spec` (S00-02 §C1, valores da S00-08) com `schema_version` e `sha256`.
