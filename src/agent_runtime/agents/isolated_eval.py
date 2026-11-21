@@ -35,7 +35,8 @@ DENY_EVENTS = ("subprocess.", "_posixsubprocess.", "os.system", "os.exec", "os.s
                "os.fork", "os.forkpty", "os.kill", "pty.", "ctypes.", "socket.", "_winapi.", "winreg.", "msvcrt.", "mmap.",
                "os.remove", "os.rename", "os.rmdir", "os.mkdir", "os.chmod", "os.chown", "os.lchown", "os.chflags",
                "os.link", "os.symlink", "os.truncate", "os.utime", "os.putenv", "os.unsetenv", "os.mkfifo", "os.mknod",
-               "os.setxattr", "os.removexattr", "shutil.", "glob.", "tempfile.", "sqlite3.", "urllib.", "http.",
+               "os.setxattr", "os.removexattr", "shutil.", "tempfile.", "sqlite3.enable_load_extension",
+               "sqlite3.load_extension", "urllib.", "http.",
                "ftplib.", "smtplib.", "telnetlib.", "webbrowser.", "fcntl.", "resource.", "signal.")
 WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
 
@@ -50,9 +51,13 @@ os.chdir(_SRC)
 sys.path.insert(0, _SRC)
 {rpc}
 
+_FULL = getattr(__import__("nt"), "_getfullpathname", None) if os.name == "nt" else None
+_ERRFD = os.dup(2)                                   # private copy: closing fd 2 cannot erase a refusal record
+
 def _p2s_hook(ev, args, _R=_ROOTS, _D={deny!r}, _W={wflags}, _cwd=os.getcwd, _S=str, _B=bytes, _I=int, _ty=type,
               _PE=PermissionError, _low=str.lower, _rep=str.replace, _sw=str.startswith, _split=str.split,
-              _join=str.join, _dec=bytes.decode, _M={mark!r}, _wr=os.write, _en=str.encode, _self=None):
+              _join=str.join, _dec=bytes.decode, _M={mark!r}, _wr=os.write, _en=str.encode, _full=_FULL,
+              _ef=_ERRFD, _exit=os._exit, _BE=BaseException, _self=None):
     bad = None
     if ev == "open" or ev == "os.listdir" or ev == "os.scandir":
         p = args[0]
@@ -71,14 +76,24 @@ def _p2s_hook(ev, args, _R=_ROOTS, _D={deny!r}, _W={wflags}, _cwd=os.getcwd, _S=
                 p = _dec(p, "utf-8", "surrogateescape")
             elif _ty(p) is not _S:
                 bad = "non-string path"
+        if bad is None and _full is not None:
+            # Windows: judge the path the OS will open. Device, UNC and stream forms are refused, never stripped.
+            q = _rep(p, "\\", "/")
+            if q[:2] == "//" or ":" in q[2:]:
+                bad = "device, UNC or stream path"
+            else:
+                try:
+                    p = _rep(_full(p), "\\", "/")
+                except _BE:
+                    bad = "unresolvable path"
+                if bad is None and (p[:2] == "//" or p[1:3] != ":/"):
+                    bad = "device, UNC or stream path"
+                p = _low(p)
         if bad is None:
-            p = _rep(p, "\\", "/")
-            if p[:4] == "//?/" or p[:4] == "//./":
-                p = p[4:]
-            if not (p[:1] == "/" or p[1:3] == ":/"):
-                p = _rep(_cwd(), "\\", "/") + "/" + p
+            if p[:1] != "/" and _full is None:
+                p = _cwd() + "/" + p
             parts = []
-            for seg in _split(_low(p), "/"):
+            for seg in _split(p, "/"):
                 if seg == "" or seg == ".":
                     continue
                 if seg == "..":
@@ -91,12 +106,18 @@ def _p2s_hook(ev, args, _R=_ROOTS, _D={deny!r}, _W={wflags}, _cwd=os.getcwd, _S=
                 if n == r or _sw(n, r + "/"):
                     return
             bad = "read outside the allowed roots"
+    elif ev == "sqlite3.connect":
+        if args[0] != ":memory:":
+            bad = "sqlite database file"
     elif _sw(ev, _D):
         bad = ev
     elif ev == "object.__setattr__" and (args[1] == "__code__" or (args[0] is _self and _ty(args[1]) is _S)):
         bad = "code replacement"
     if bad is not None:
-        _wr(2, _en(_M + ": " + bad + "\n", "utf-8"))    # survives a caller that swallows the exception
+        try:
+            _wr(_ef, _en(_M + ": " + bad + "\n", "utf-8"))    # survives a caller that swallows the exception
+        except _BE:
+            _exit(97)                                         # the refusal cannot be recorded: stop, fail closed
         raise _PE(_M + ": " + bad)
 
 _p2s_hook.__defaults__ = _p2s_hook.__defaults__[:-1] + (_p2s_hook,)   # the hook guards its own defaults
@@ -180,8 +201,11 @@ sys.exit(int(_rc))
 
 
 def norm_root(path: str | Path) -> str:
-    """Same normalisation as the child's hook: lower-case POSIX, '..' resolved, leading '/'."""
-    p = str(Path(path).resolve()).replace("\\", "/").lower()
+    """Same normalisation as the child's hook: absolute, '..' resolved, leading '/'; on Windows also '/' separators and
+    lower case (case-insensitive filesystem). POSIX keeps case and backslashes, which are part of a file name there."""
+    p = str(Path(path).resolve())
+    if os.name == "nt":
+        p = p.replace("\\", "/").lower()
     return "/" + "/".join(s for s in p.split("/") if s and s != ".")
 
 

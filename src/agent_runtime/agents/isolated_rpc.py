@@ -10,11 +10,19 @@ child's output must never execute code in the judge.
 """
 import base64
 import builtins
+import dataclasses
+import datetime
+import decimal
+import fractions
 import json
 import math
+import types
+import uuid
 
 MAX_DEPTH = 64
 MAX_LINE = 8 * 1024 * 1024
+MAX_ITEMS = 100_000                  # an iterator returned by the evaluated code is drained up to this many items
+_DT = {"date": datetime.date, "datetime": datetime.datetime, "time": datetime.time}
 
 
 class ProtocolError(Exception):
@@ -72,19 +80,45 @@ class Endpoint:
             return {"B": base64.b64encode(v).decode("ascii")}
         if t is set or t is frozenset:
             return {"S" if t is set else "FS": [self.enc(x, depth + 1) for x in v]}
+        # stdlib value types: copied, rebuilt as the same stdlib type on the other side (equality computed there)
+        for name, cls in _DT.items():
+            if t is cls:
+                return {"DT": name, "v": v.isoformat()}
+        if t is datetime.timedelta:
+            return {"TD": [v.days, v.seconds, v.microseconds]}
+        if t is decimal.Decimal:
+            return {"DEC": str(v)}
+        if t is fractions.Fraction:
+            return {"FR": [v.numerator, v.denominator]}
+        if t is uuid.UUID:
+            return {"UUID": str(v)}
+        if isinstance(v, tuple) and hasattr(t, "_fields"):           # namedtuple: crosses as a plain tuple
+            return {"T": [self.enc(x, depth + 1) for x in tuple.__iter__(v)]}
         own = self._own_handle_of_proxy(v)
         if own is not None:
             return own
+        if self.side == "child" and (t is types.GeneratorType or (hasattr(v, "__next__") and iter(v) is v)):
+            items = []
+            for x in v:
+                if len(items) >= MAX_ITEMS:
+                    raise ValueError(f"iterator longer than {MAX_ITEMS} items")
+                items.append(x)
+            return {"IT": [self.enc(x, depth + 1) for x in items]}
         h = self._export(v)
         if self.side == "judge":
             return {"P": h}
+        if dataclasses.is_dataclass(v) and not isinstance(v, type):
+            params = getattr(t, "__dataclass_params__", None)
+            return {"R": h, "k": "dc", "n": t.__name__, "c": self.enc(t, depth + 1),
+                    "eq": bool(getattr(params, "eq", False)),
+                    "f": [[f.name, self.enc(getattr(v, f.name), depth + 1)] for f in dataclasses.fields(v)]}
         if isinstance(v, type) and issubclass(v, BaseException):
             return {"R": h, "k": "exc", "n": v.__name__, "b": _builtin_exc_name(v)}
         return {"R": h, "k": "call" if callable(v) else "obj", "n": getattr(v, "__qualname__", type(v).__name__)}
 
     def _own_handle_of_proxy(self, v):
         """A proxy of the OTHER side's object goes back as that side's handle."""
-        h = getattr(v, "_p2s_handle", None) if type(v) in (RemoteRef, ParentRef) else None
+        h = getattr(v, "_p2s_handle", None) if type(v) in (RemoteRef, ParentRef, DataRef) else None
         if h is None:
             for rh, cls in self.proxies.items():
                 if cls is v:
@@ -115,6 +149,23 @@ class Endpoint:
             return {self.dec(x, depth + 1) for x in v["S"]}
         if "FS" in v:
             return frozenset(self.dec(x, depth + 1) for x in v["FS"])
+        if "DT" in v:
+            cls = _DT.get(v["DT"])
+            if cls is None or type(v.get("v")) is not str:
+                raise ProtocolError("malformed date/time")
+            return cls.fromisoformat(v["v"])
+        if "TD" in v:
+            d, sec, us = (_int(x) for x in v["TD"])
+            return datetime.timedelta(days=d, seconds=sec, microseconds=us)
+        if "DEC" in v:
+            return decimal.Decimal(str(v["DEC"]))
+        if "FR" in v:
+            n, d = (_int(x) for x in v["FR"])
+            return fractions.Fraction(n, d)
+        if "UUID" in v:
+            return uuid.UUID(str(v["UUID"]))
+        if "IT" in v:
+            return iter([self.dec(x, depth + 1) for x in v["IT"]])
         if self.side == "judge":
             if "P" in v:
                 return self.exported[_int(v["P"])]
@@ -130,6 +181,10 @@ class Endpoint:
 
     def _remote(self, v):
         h = _int(v["R"])
+        if v.get("k") == "dc":          # fields may change between calls: a fresh value every time, never cached
+            cls = self.dec(v["c"])
+            fields = {str(k): self.dec(x) for k, x in v.get("f", [])}
+            return DataRef(self, h, str(v.get("n", "data"))[:100], cls, fields, bool(v.get("eq")))
         if h in self.proxies:
             return self.proxies[h]
         if v.get("k") == "exc":
@@ -260,6 +315,42 @@ class RemoteRef:
 
     def __repr__(self):
         return f"<remote {self._p2s_name}>"
+
+
+class DataRef:
+    """Judge-side copy of a dataclass instance from the child. Equality and hashing are computed HERE from the copied
+    fields (``eq=True`` dataclasses) or by identity; the child is never asked to answer ``==``."""
+
+    __slots__ = ("_p2s_cls", "_p2s_ep", "_p2s_eq", "_p2s_fields", "_p2s_handle", "_p2s_name")
+
+    def __init__(self, ep, h, name, cls, fields, eq):
+        for k, val in (("_p2s_ep", ep), ("_p2s_handle", h), ("_p2s_name", name), ("_p2s_cls", cls),
+                       ("_p2s_fields", fields), ("_p2s_eq", eq)):
+            object.__setattr__(self, k, val)
+
+    def __getattr__(self, name):
+        fields = object.__getattribute__(self, "_p2s_fields")
+        if name in fields:
+            return fields[name]
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return self._p2s_ep.request({"op": "attr", "obj": {"R": self._p2s_handle}, "name": name})
+
+    def __eq__(self, other):
+        if type(other) is not DataRef or other._p2s_cls is not self._p2s_cls:
+            return NotImplemented
+        if not self._p2s_eq:
+            return other._p2s_handle == self._p2s_handle
+        return other._p2s_fields == self._p2s_fields
+
+    def __hash__(self):
+        if not self._p2s_eq:
+            return hash(self._p2s_handle)
+        return hash((id(self._p2s_cls), tuple(sorted(self._p2s_fields.items()))))
+
+    def __repr__(self):
+        inner = ", ".join(f"{k}={v!r}" for k, v in self._p2s_fields.items())
+        return f"{self._p2s_name}({inner})"
 
 
 class ParentRef:
