@@ -1,0 +1,85 @@
+{
+  "schema": "benchmark_result/1.0",
+  "run_id": "llama-s1_paginate-r1",
+  "scenario": "s1_paginate",
+  "repeat": 1,
+  "backend": "llama",
+  "provider": "ollama",
+  "model": "llama3.1:8b",
+  "model_digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
+  "quantization": "Q4_K_M",
+  "base_commit": "01087f6e38213604308ca0bc13a57aa96504445e",
+  "outcome": "BLOCKED",
+  "functional_success": false,
+  "infra_failure": false,
+  "human_intervention": false,
+  "error": "tests still failing after 3 attempts",
+  "attempts": 3,
+  "duration_s": 11.531,
+  "tool_calls": 5,
+  "tool_errors": 0,
+  "policy_refusals": 0,
+  "tool_usage": {
+    "list_files": 2,
+    "run_tests": 3
+  },
+  "tests_before": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 2,
+    "failed": 2,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.422
+  },
+  "tests_after": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 2,
+    "failed": 2,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.453
+  },
+  "hidden_tests": null,
+  "tokens": {
+    "prompt": 4698,
+    "completion": 528,
+    "measured": true
+  },
+  "resources": {
+    "scope": "system-wide (GPU and RAM are shared with the desktop and other processes)",
+    "gpu_mem_used_mib": {
+      "max": 12906.0,
+      "mean": 7929.4,
+      "samples": 5
+    },
+    "gpu_util_pct": {
+      "max": 96.0,
+      "mean": 26.6,
+      "samples": 5
+    },
+    "ram_used_mib": {
+      "max": 29846.2,
+      "mean": 23764.4,
+      "samples": 5
+    },
+    "cpu_busy_pct_mean": 25.2
+  },
+  "contract_violations": [],
+  "diff": {
+    "files": [],
+    "lines_added": 0,
+    "lines_removed": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "evidence": {
+    "run_manifest": "run_manifest.json",
+    "tool_calls": "tool_calls.jsonl",
+    "events": "events.jsonl",
+    "patch": "changes.patch",
+    "attempts": "attempts/"
+  }
+}

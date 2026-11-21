@@ -1,0 +1,98 @@
+{
+  "schema": "benchmark_result/1.0",
+  "run_id": "claude-s2_duration-r3",
+  "scenario": "s2_duration",
+  "repeat": 3,
+  "backend": "claude",
+  "provider": "claude-code-cli",
+  "model": "claude-sonnet-5-5",
+  "model_digest": null,
+  "quantization": null,
+  "base_commit": "f98f28e4409eb07f9dcf0f48c150c08d5eedcd2b",
+  "outcome": "SUCCESS",
+  "functional_success": true,
+  "infra_failure": false,
+  "human_intervention": false,
+  "error": null,
+  "attempts": 1,
+  "duration_s": 11.734,
+  "tool_calls": 6,
+  "tool_errors": 0,
+  "policy_refusals": 0,
+  "tool_usage": {
+    "list_files": 1,
+    "read_file": 1,
+    "replace_in_file": 2,
+    "run_tests": 2
+  },
+  "tests_before": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 0,
+    "failed": 4,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.485
+  },
+  "tests_after": {
+    "exit_code": 0,
+    "timed_out": false,
+    "passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": true,
+    "duration_s": 0.422
+  },
+  "hidden_tests": {
+    "exit_code": 0,
+    "timed_out": false,
+    "passed": 24,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": true,
+    "duration_s": 0.422
+  },
+  "tokens": {
+    "prompt": 14968,
+    "completion": 817,
+    "measured": true
+  },
+  "resources": {
+    "scope": "system-wide (GPU and RAM are shared with the desktop and other processes)",
+    "gpu_mem_used_mib": {
+      "max": 8444.0,
+      "mean": 8444.0,
+      "samples": 6
+    },
+    "gpu_util_pct": {
+      "max": 96.0,
+      "mean": 47.8,
+      "samples": 6
+    },
+    "ram_used_mib": {
+      "max": 24618.4,
+      "mean": 24288.8,
+      "samples": 6
+    },
+    "cpu_busy_pct_mean": 27.6
+  },
+  "contract_violations": [],
+  "diff": {
+    "files": [
+      "src/durations/__init__.py"
+    ],
+    "lines_added": 3,
+    "lines_removed": 3,
+    "sha256": "1543f0d4c7d63b16d5572b9e12831e45d065a54423ed4e3926adf8d23185066b"
+  },
+  "evidence": {
+    "run_manifest": "run_manifest.json",
+    "tool_calls": "tool_calls.jsonl",
+    "events": "events.jsonl",
+    "patch": "changes.patch",
+    "attempts": "attempts/"
+  }
+}

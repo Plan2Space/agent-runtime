@@ -376,3 +376,14 @@ def test_a_lease_lost_result_keeps_the_attempt_number(store, clock):
         store.claim_outbox("ladrao", LEASE)                                                        # outro publicador toma a entrada depois do efeito
     res = publish(store, target, after_send=steal)
     assert res["action"] == "LEASE_LOST" and res["attempt"] == 1
+
+
+def test_entry_carrying_the_human_approval_grammar_is_never_sent(store):
+    # S00-05 R16: the runtime cannot forge a C9 approval comment on GitHub.
+    target = FakeTarget()
+    (oid,) = queue(store, "k1", payload={"pr": 60, "body": "APROVADO HIGH " + "c" * 40})
+
+    res = publish(store, target)
+
+    assert res["action"] == "FAILED" and "aprovacao" in res["reason"]
+    assert target.effects == [] and status(store, oid) == "PENDING"

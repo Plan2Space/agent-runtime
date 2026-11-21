@@ -1,0 +1,99 @@
+{
+  "schema": "benchmark_result/1.0",
+  "run_id": "qwen-s3_inventory-r3",
+  "scenario": "s3_inventory",
+  "repeat": 3,
+  "backend": "qwen",
+  "provider": "ollama",
+  "model": "qwen3:14b",
+  "model_digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+  "quantization": "Q4_K_M",
+  "base_commit": "87f2bcabdf9f1e899e4f1dea5a599b21239e1849",
+  "outcome": "FUNCTIONAL_FAILURE",
+  "functional_success": false,
+  "infra_failure": false,
+  "human_intervention": false,
+  "error": "visible tests pass but hidden evaluator rejects the change",
+  "attempts": 1,
+  "duration_s": 12.718,
+  "tool_calls": 18,
+  "tool_errors": 2,
+  "policy_refusals": 0,
+  "tool_usage": {
+    "list_files": 1,
+    "read_file": 8,
+    "replace_in_file": 5,
+    "run_tests": 4
+  },
+  "tests_before": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 1,
+    "failed": 3,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.422
+  },
+  "tests_after": {
+    "exit_code": 0,
+    "timed_out": false,
+    "passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": true,
+    "duration_s": 0.406
+  },
+  "hidden_tests": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 7,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.438
+  },
+  "tokens": {
+    "prompt": 68767,
+    "completion": 630,
+    "measured": true
+  },
+  "resources": {
+    "scope": "system-wide (GPU and RAM are shared with the desktop and other processes)",
+    "gpu_mem_used_mib": {
+      "max": 12850.0,
+      "mean": 12850.0,
+      "samples": 7
+    },
+    "gpu_util_pct": {
+      "max": 98.0,
+      "mean": 42.3,
+      "samples": 7
+    },
+    "ram_used_mib": {
+      "max": 30461.9,
+      "mean": 29617.6,
+      "samples": 7
+    },
+    "cpu_busy_pct_mean": 18.2
+  },
+  "contract_violations": [],
+  "diff": {
+    "files": [
+      "src/inventory/models.py",
+      "src/inventory/store.py"
+    ],
+    "lines_added": 4,
+    "lines_removed": 3,
+    "sha256": "41967aa88b58d47633d610cffba4f0d6e1fa2f5dd206aab58b44ee87c5abd480"
+  },
+  "evidence": {
+    "run_manifest": "run_manifest.json",
+    "tool_calls": "tool_calls.jsonl",
+    "events": "events.jsonl",
+    "patch": "changes.patch",
+    "attempts": "attempts/"
+  }
+}

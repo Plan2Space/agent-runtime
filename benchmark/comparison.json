@@ -1,0 +1,208 @@
+{
+  "generated_from": "benchmark/<backend>/metrics.json",
+  "rule": [
+    "Recommendation per backend is a deterministic rule over the measured success rates (no subjective score):",
+    "    autonomo_controlado        : SUCCESS in >= 8/9 runs, every scenario >= 2/3, zero contract violations",
+    "    assistente_supervisionado  : SUCCESS in >= 2/3 of s1 and s2 runs, zero contract violations",
+    "    so_tarefas_simples         : SUCCESS in >= 2/3 of s1 runs",
+    "    inadequado                 : otherwise"
+  ],
+  "backends": {
+    "claude": {
+      "backend": "claude",
+      "model": "claude-sonnet-5-5",
+      "model_digest": null,
+      "quantization": null,
+      "provider": "claude-code-cli",
+      "success": 9,
+      "runs": 9,
+      "infra_failures": 0,
+      "contract_violations": 0,
+      "visible_tests_pass_runs": 9,
+      "hidden_tests_pass_runs": 9,
+      "median_attempts": 1,
+      "median_duration_s": 11.73,
+      "median_tool_calls": 6,
+      "tool_error_rate": 0.0,
+      "median_prompt_tokens": 14818,
+      "median_completion_tokens": 746,
+      "max_gpu_mem_used_mib_system": 12902.0,
+      "human_intervention_runs": 0,
+      "per_scenario": {
+        "s1_paginate": {
+          "success": 3,
+          "runs": 3,
+          "outcomes": [
+            "SUCCESS",
+            "SUCCESS",
+            "SUCCESS"
+          ],
+          "median_duration_s": 8.53,
+          "median_attempts": 1,
+          "median_tool_calls": 5
+        },
+        "s2_duration": {
+          "success": 3,
+          "runs": 3,
+          "outcomes": [
+            "SUCCESS",
+            "SUCCESS",
+            "SUCCESS"
+          ],
+          "median_duration_s": 11.73,
+          "median_attempts": 1,
+          "median_tool_calls": 6
+        },
+        "s3_inventory": {
+          "success": 3,
+          "runs": 3,
+          "outcomes": [
+            "SUCCESS",
+            "SUCCESS",
+            "SUCCESS"
+          ],
+          "median_duration_s": 13.3,
+          "median_attempts": 1,
+          "median_tool_calls": 9
+        }
+      },
+      "recommendation": "autonomo_controlado"
+    },
+    "qwen": {
+      "backend": "qwen",
+      "model": "qwen3:14b",
+      "model_digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+      "quantization": "Q4_K_M",
+      "provider": "ollama",
+      "success": 4,
+      "runs": 9,
+      "infra_failures": 0,
+      "contract_violations": 0,
+      "visible_tests_pass_runs": 7,
+      "hidden_tests_pass_runs": 4,
+      "median_attempts": 1,
+      "median_duration_s": 8.97,
+      "median_tool_calls": 10,
+      "tool_error_rate": 0.074,
+      "median_prompt_tokens": 24581,
+      "median_completion_tokens": 488,
+      "max_gpu_mem_used_mib_system": 12911.0,
+      "human_intervention_runs": 0,
+      "per_scenario": {
+        "s1_paginate": {
+          "success": 3,
+          "runs": 3,
+          "outcomes": [
+            "SUCCESS",
+            "SUCCESS",
+            "SUCCESS"
+          ],
+          "median_duration_s": 5.12,
+          "median_attempts": 1,
+          "median_tool_calls": 5
+        },
+        "s2_duration": {
+          "success": 1,
+          "runs": 3,
+          "outcomes": [
+            "BLOCKED",
+            "SUCCESS",
+            "BLOCKED"
+          ],
+          "median_duration_s": 48.38,
+          "median_attempts": 3,
+          "median_tool_calls": 42
+        },
+        "s3_inventory": {
+          "success": 0,
+          "runs": 3,
+          "outcomes": [
+            "FUNCTIONAL_FAILURE",
+            "FUNCTIONAL_FAILURE",
+            "FUNCTIONAL_FAILURE"
+          ],
+          "median_duration_s": 8.97,
+          "median_attempts": 1,
+          "median_tool_calls": 10
+        }
+      },
+      "recommendation": "so_tarefas_simples"
+    },
+    "llama": {
+      "backend": "llama",
+      "model": "llama3.1:8b",
+      "model_digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
+      "quantization": "Q4_K_M",
+      "provider": "ollama",
+      "success": 0,
+      "runs": 9,
+      "infra_failures": 0,
+      "contract_violations": 0,
+      "visible_tests_pass_runs": 0,
+      "hidden_tests_pass_runs": 0,
+      "median_attempts": 3,
+      "median_duration_s": 10.03,
+      "median_tool_calls": 5,
+      "tool_error_rate": 0.0,
+      "median_prompt_tokens": 7742,
+      "median_completion_tokens": 528,
+      "max_gpu_mem_used_mib_system": 12906.0,
+      "human_intervention_runs": 0,
+      "per_scenario": {
+        "s1_paginate": {
+          "success": 0,
+          "runs": 3,
+          "outcomes": [
+            "BLOCKED",
+            "BLOCKED",
+            "BLOCKED"
+          ],
+          "median_duration_s": 10.66,
+          "median_attempts": 3,
+          "median_tool_calls": 5
+        },
+        "s2_duration": {
+          "success": 0,
+          "runs": 3,
+          "outcomes": [
+            "BLOCKED",
+            "BLOCKED",
+            "BLOCKED"
+          ],
+          "median_duration_s": 8.25,
+          "median_attempts": 3,
+          "median_tool_calls": 6
+        },
+        "s3_inventory": {
+          "success": 0,
+          "runs": 3,
+          "outcomes": [
+            "BLOCKED",
+            "BLOCKED",
+            "BLOCKED"
+          ],
+          "median_duration_s": 10.03,
+          "median_attempts": 3,
+          "median_tool_calls": 4
+        }
+      },
+      "recommendation": "inadequado"
+    }
+  },
+  "same_base_commit_per_scenario": {
+    "s1_paginate": true,
+    "s2_duration": true,
+    "s3_inventory": true
+  },
+  "base_commits": {
+    "s1_paginate": [
+      "01087f6e38213604308ca0bc13a57aa96504445e"
+    ],
+    "s2_duration": [
+      "f98f28e4409eb07f9dcf0f48c150c08d5eedcd2b"
+    ],
+    "s3_inventory": [
+      "87f2bcabdf9f1e899e4f1dea5a599b21239e1849"
+    ]
+  }
+}

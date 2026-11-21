@@ -1,0 +1,99 @@
+{
+  "schema": "benchmark_result/1.0",
+  "run_id": "qwen-s3_inventory-r2",
+  "scenario": "s3_inventory",
+  "repeat": 2,
+  "backend": "qwen",
+  "provider": "ollama",
+  "model": "qwen3:14b",
+  "model_digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+  "quantization": "Q4_K_M",
+  "base_commit": "87f2bcabdf9f1e899e4f1dea5a599b21239e1849",
+  "outcome": "FUNCTIONAL_FAILURE",
+  "functional_success": false,
+  "infra_failure": false,
+  "human_intervention": false,
+  "error": "visible tests pass but hidden evaluator rejects the change",
+  "attempts": 1,
+  "duration_s": 8.969,
+  "tool_calls": 10,
+  "tool_errors": 0,
+  "policy_refusals": 0,
+  "tool_usage": {
+    "list_files": 1,
+    "read_file": 4,
+    "replace_in_file": 3,
+    "run_tests": 2
+  },
+  "tests_before": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 1,
+    "failed": 3,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.453
+  },
+  "tests_after": {
+    "exit_code": 0,
+    "timed_out": false,
+    "passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": true,
+    "duration_s": 0.406
+  },
+  "hidden_tests": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 7,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.438
+  },
+  "tokens": {
+    "prompt": 24563,
+    "completion": 488,
+    "measured": true
+  },
+  "resources": {
+    "scope": "system-wide (GPU and RAM are shared with the desktop and other processes)",
+    "gpu_mem_used_mib": {
+      "max": 12850.0,
+      "mean": 12850.0,
+      "samples": 5
+    },
+    "gpu_util_pct": {
+      "max": 98.0,
+      "mean": 58.2,
+      "samples": 5
+    },
+    "ram_used_mib": {
+      "max": 30538.1,
+      "mean": 30356.4,
+      "samples": 5
+    },
+    "cpu_busy_pct_mean": 18.1
+  },
+  "contract_violations": [],
+  "diff": {
+    "files": [
+      "src/inventory/models.py",
+      "src/inventory/store.py"
+    ],
+    "lines_added": 3,
+    "lines_removed": 3,
+    "sha256": "4d34f376e529a765b3c2afd09469a409a1b99d09624b43b219e60735ce5a1224"
+  },
+  "evidence": {
+    "run_manifest": "run_manifest.json",
+    "tool_calls": "tool_calls.jsonl",
+    "events": "events.jsonl",
+    "patch": "changes.patch",
+    "attempts": "attempts/"
+  }
+}

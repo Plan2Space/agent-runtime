@@ -1,0 +1,16 @@
+diff --git a/src/durations/__init__.py b/src/durations/__init__.py
+index a91b06e..adc8d16 100644
+--- a/src/durations/__init__.py
++++ b/src/durations/__init__.py
+@@ -2,9 +2,9 @@
+ 
+ import re
+ 
+-_PATTERN = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?")
++_PATTERN = re.compile(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", re.IGNORECASE | re.UNICODE)
+ 
+-_UNIT_SECONDS = {"h": 3600, "m": 3600, "s": 1}
++_UNIT_SECONDS = {"h": 3600, "m": 60, "s": 1}
+ 
+ 
+ def parse_duration(text):

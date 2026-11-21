@@ -1,0 +1,112 @@
+{
+  "run_id": "claude-s2_duration-r3",
+  "task_id": "S00-11",
+  "scenario": "s2_duration",
+  "repeat": 3,
+  "backend": "claude",
+  "provider": "claude-code-cli",
+  "model": "claude-sonnet-5-5",
+  "model_digest": null,
+  "quantization": null,
+  "context_window": null,
+  "sampling": {
+    "temperature": null,
+    "seed": null,
+    "reason": "claude -p does not expose sampling controls"
+  },
+  "base_commit": "f98f28e4409eb07f9dcf0f48c150c08d5eedcd2b",
+  "worktree": "I:\\p2s-b-bench\\w2\\wt\\claude\\s2_duration_r3",
+  "limits": {
+    "max_tool_calls": 30,
+    "attempt_timeout_s": 600,
+    "max_attempts": 3,
+    "tool_timeout_s": 120
+  },
+  "policy": {
+    "enabled": [
+      "git_diff",
+      "git_status",
+      "list_files",
+      "read_file",
+      "replace_in_file",
+      "run_tests",
+      "write_file"
+    ],
+    "write_deny": [
+      "tests",
+      "tests/*",
+      ".git",
+      ".git/*",
+      "pyproject.toml"
+    ],
+    "read_deny": [
+      ".git/*",
+      ".git"
+    ],
+    "command_allowlist": [],
+    "test_argv": [
+      "E:\\Claude\\worktrees\\p2s-b-agents\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests"
+    ],
+    "max_output_chars": 12000,
+    "max_file_bytes": 200000
+  },
+  "system_prompt_sha256": "5fb7e7471b088409356e74743404b54aca445e99c70a4cc760eb61ac30f16892",
+  "started_at": "2026-11-21T00:03:21.842824+00:00",
+  "human_intervention": false,
+  "seed": null,
+  "difficulty": 2,
+  "finished_at": "2026-11-21T00:03:33.577310+00:00",
+  "outcome": "SUCCESS",
+  "error": null,
+  "attempts": [
+    {
+      "mode": "delegated_cli",
+      "turns": 7,
+      "tool_calls": 6,
+      "stop_reason": "agent_finished",
+      "final_text": "I fixed three defects in `src/durations/__init__.py`, and all 4 tests now pass.\n\n- **Minutes were worth 3600 seconds.** `_UNIT_SECONDS[\"m\"]` is now 60. This caused the wrong results for `1h30m` and the `format_duration` round trip.\n- **Case and whitespace weren't handled.** The regex now allows leading and trailing whitespace and uses `re.IGNORECASE`, so `\" 2M \"` parses.\n- **Trailing garbage was accepted.** `_PATTERN.match` only checked the start of the string, so I switched it to `fullmatch`. Input with stray characters after a valid prefix now raises `ValueError`.",
+      "usage": {
+        "prompt": 14968,
+        "completion": 817
+      },
+      "cli": {
+        "exit_code": 0,
+        "subtype": "success",
+        "duration_ms": 9011,
+        "total_cost_usd_reported": 0.0111512,
+        "model_usage": [
+          "claude-sonnet-5-5"
+        ],
+        "mcp_status": "connected",
+        "launches": [
+          {
+            "mcp_status": "connected",
+            "exit_code": 0,
+            "timed_out": false,
+            "turns": 7
+          }
+        ]
+      },
+      "attempt": 1,
+      "duration_s": 10.75,
+      "tests": {
+        "exit_code": 0,
+        "timed_out": false,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed_all": true,
+        "duration_s": 0.422
+      },
+      "protected_changes": [],
+      "patch_sha256": "1543f0d4c7d63b16d5572b9e12831e45d065a54423ed4e3926adf8d23185066b"
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "schema": "benchmark_result/1.0",
+  "run_id": "qwen-s2_duration-r1",
+  "scenario": "s2_duration",
+  "repeat": 1,
+  "backend": "qwen",
+  "provider": "ollama",
+  "model": "qwen3:14b",
+  "model_digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+  "quantization": "Q4_K_M",
+  "base_commit": "f98f28e4409eb07f9dcf0f48c150c08d5eedcd2b",
+  "outcome": "BLOCKED",
+  "functional_success": false,
+  "infra_failure": false,
+  "human_intervention": false,
+  "error": "tests still failing after 3 attempts",
+  "attempts": 3,
+  "duration_s": 48.375,
+  "tool_calls": 42,
+  "tool_errors": 0,
+  "policy_refusals": 0,
+  "tool_usage": {
+    "list_files": 3,
+    "read_file": 11,
+    "replace_in_file": 13,
+    "run_tests": 15
+  },
+  "tests_before": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 0,
+    "failed": 4,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.453
+  },
+  "tests_after": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 1,
+    "failed": 3,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.453
+  },
+  "hidden_tests": null,
+  "tokens": {
+    "prompt": 195488,
+    "completion": 2608,
+    "measured": true
+  },
+  "resources": {
+    "scope": "system-wide (GPU and RAM are shared with the desktop and other processes)",
+    "gpu_mem_used_mib": {
+      "max": 12910.0,
+      "mean": 12903.7,
+      "samples": 24
+    },
+    "gpu_util_pct": {
+      "max": 98.0,
+      "mean": 62.3,
+      "samples": 24
+    },
+    "ram_used_mib": {
+      "max": 25811.3,
+      "mean": 24480.4,
+      "samples": 24
+    },
+    "cpu_busy_pct_mean": 23.7
+  },
+  "contract_violations": [],
+  "diff": {
+    "files": [
+      "src/durations/__init__.py"
+    ],
+    "lines_added": 3,
+    "lines_removed": 3,
+    "sha256": "e1ad98d10d7df849615991ea04f6fe3952500060dc6861427a5ebe67f9f3815f"
+  },
+  "evidence": {
+    "run_manifest": "run_manifest.json",
+    "tool_calls": "tool_calls.jsonl",
+    "events": "events.jsonl",
+    "patch": "changes.patch",
+    "attempts": "attempts/"
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "run_id": "claude-s3_inventory-r3",
+  "task_id": "S00-11",
+  "scenario": "s3_inventory",
+  "repeat": 3,
+  "backend": "claude",
+  "provider": "claude-code-cli",
+  "model": "claude-sonnet-5-5",
+  "model_digest": null,
+  "quantization": null,
+  "context_window": null,
+  "sampling": {
+    "temperature": null,
+    "seed": null,
+    "reason": "claude -p does not expose sampling controls"
+  },
+  "base_commit": "87f2bcabdf9f1e899e4f1dea5a599b21239e1849",
+  "worktree": "I:\\p2s-b-bench\\w2\\wt\\claude\\s3_inventory_r3",
+  "limits": {
+    "max_tool_calls": 30,
+    "attempt_timeout_s": 600,
+    "max_attempts": 3,
+    "tool_timeout_s": 120
+  },
+  "policy": {
+    "enabled": [
+      "git_diff",
+      "git_status",
+      "list_files",
+      "read_file",
+      "replace_in_file",
+      "run_tests",
+      "write_file"
+    ],
+    "write_deny": [
+      "tests",
+      "tests/*",
+      ".git",
+      ".git/*",
+      "pyproject.toml"
+    ],
+    "read_deny": [
+      ".git/*",
+      ".git"
+    ],
+    "command_allowlist": [],
+    "test_argv": [
+      "E:\\Claude\\worktrees\\p2s-b-agents\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests"
+    ],
+    "max_output_chars": 12000,
+    "max_file_bytes": 200000
+  },
+  "system_prompt_sha256": "5fb7e7471b088409356e74743404b54aca445e99c70a4cc760eb61ac30f16892",
+  "started_at": "2026-11-21T00:04:02.762552+00:00",
+  "human_intervention": false,
+  "seed": null,
+  "difficulty": 3,
+  "finished_at": "2026-11-21T00:04:16.065954+00:00",
+  "outcome": "SUCCESS",
+  "error": null,
+  "attempts": [
+    {
+      "mode": "delegated_cli",
+      "turns": 10,
+      "tool_calls": 9,
+      "stop_reason": "agent_finished",
+      "final_text": "All four tests now pass. I fixed four defects in `src/inventory/`:\n\n- **`Reservation.active` (`models.py`):** the comparison was inverted. It returned true once a reservation had expired, so active holds were never counted. It now returns `now < expires_at`.\n- **`reserve` (`store.py`):** it checked the request against total stock. It now checks against `available(sku)`, so existing active holds count.\n- **`release` (`store.py`):** it raised `KeyError` for an unknown or already-released id. It now ignores them, as the docstring says.\n- **`commit` (`store.py`):** the docstring says an unknown or expired reservation raises `KeyError` and leaves stock unchanged. The old code would have committed an expired one. I added an active check before the stock is touched. No test covers this case, so it is untested.",
+      "usage": {
+        "prompt": 17091,
+        "completion": 1147
+      },
+      "cli": {
+        "exit_code": 0,
+        "subtype": "success",
+        "duration_ms": 10622,
+        "total_cost_usd_reported": 0.0213115,
+        "model_usage": [
+          "claude-sonnet-5-5"
+        ],
+        "mcp_status": "connected",
+        "launches": [
+          {
+            "mcp_status": "connected",
+            "exit_code": 0,
+            "timed_out": false,
+            "turns": 10
+          }
+        ]
+      },
+      "attempt": 1,
+      "duration_s": 12.313,
+      "tests": {
+        "exit_code": 0,
+        "timed_out": false,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed_all": true,
+        "duration_s": 0.391
+      },
+      "protected_changes": [],
+      "patch_sha256": "68f9262d5c1d3a96e8be0fb444fd0b4babc611d39c56e53cbd5d69c5caf51fb0"
+    }
+  ]
+}

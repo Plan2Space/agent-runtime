@@ -1,0 +1,145 @@
+{
+  "run_id": "qwen-s2_duration-r3",
+  "task_id": "S00-11",
+  "scenario": "s2_duration",
+  "repeat": 3,
+  "backend": "qwen",
+  "provider": "ollama",
+  "model": "qwen3:14b",
+  "model_digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+  "quantization": "Q4_K_M",
+  "context_window": 40960,
+  "sampling": {
+    "temperature": 0.3,
+    "seed": 1003,
+    "num_ctx": 16384,
+    "think": false
+  },
+  "base_commit": "f98f28e4409eb07f9dcf0f48c150c08d5eedcd2b",
+  "worktree": "I:\\p2s-b-bench\\w2\\wt\\qwen\\s2_duration_r3",
+  "limits": {
+    "max_tool_calls": 30,
+    "attempt_timeout_s": 600,
+    "max_attempts": 3,
+    "tool_timeout_s": 120
+  },
+  "policy": {
+    "enabled": [
+      "git_diff",
+      "git_status",
+      "list_files",
+      "read_file",
+      "replace_in_file",
+      "run_tests",
+      "write_file"
+    ],
+    "write_deny": [
+      "tests",
+      "tests/*",
+      ".git",
+      ".git/*",
+      "pyproject.toml"
+    ],
+    "read_deny": [
+      ".git/*",
+      ".git"
+    ],
+    "command_allowlist": [],
+    "test_argv": [
+      "E:\\Claude\\worktrees\\p2s-b-agents\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests"
+    ],
+    "max_output_chars": 12000,
+    "max_file_bytes": 200000
+  },
+  "system_prompt_sha256": "5fb7e7471b088409356e74743404b54aca445e99c70a4cc760eb61ac30f16892",
+  "started_at": "2026-11-21T00:05:41.802216+00:00",
+  "human_intervention": false,
+  "seed": 1003,
+  "difficulty": 2,
+  "finished_at": "2026-11-21T00:06:51.330050+00:00",
+  "outcome": "BLOCKED",
+  "error": "tests still failing after 3 attempts",
+  "attempts": [
+    {
+      "mode": "harness_loop",
+      "turns": 9,
+      "tool_calls": 9,
+      "stop_reason": "agent_finished",
+      "final_text": "",
+      "usage": {
+        "prompt": 22562,
+        "completion": 428
+      },
+      "attempt": 1,
+      "duration_s": 7.953,
+      "tests": {
+        "exit_code": 1,
+        "timed_out": false,
+        "passed": 2,
+        "failed": 2,
+        "errors": 0,
+        "skipped": 0,
+        "passed_all": false,
+        "duration_s": 0.437
+      },
+      "protected_changes": [],
+      "patch_sha256": "42693d7f2a4d2399e97601f08061e7933b8e0a75ca1a5ccab691a235a197cf1d"
+    },
+    {
+      "mode": "harness_loop",
+      "turns": 21,
+      "tool_calls": 20,
+      "stop_reason": "agent_finished",
+      "final_text": "The issue lies in the `_PATTERN` regular expression and how the groups are being parsed. The current pattern captures both the numeric value and the unit (e.g., \"h\", \"m\", \"s\") in the same group, which causes the `int(g)` call to fail when it encounters the unit string instead of a numeric value. To fix this, the pattern should capture the numeric value and the unit in separate groups. Then, the code can extract the numeric values and map the units to their corresponding seconds using `_UNIT_SECONDS`.\n\nHere's the fix:\n\n1. **Update the `_PATTERN`** to capture the numeric value and the unit in separate groups.\n2. **Adjust the parsing logic** to extract the numeric values and map the units properly.\n\nThe corrected code should pass all tests.",
+      "usage": {
+        "prompt": 105634,
+        "completion": 1454
+      },
+      "attempt": 2,
+      "duration_s": 25.094,
+      "tests": {
+        "exit_code": 1,
+        "timed_out": false,
+        "passed": 1,
+        "failed": 3,
+        "errors": 0,
+        "skipped": 0,
+        "passed_all": false,
+        "duration_s": 0.422
+      },
+      "protected_changes": [],
+      "patch_sha256": "4bcaf4d7648071e8533ed85a4e89abe1569caaf57be87cffc1a2a659bb80c6dc"
+    },
+    {
+      "mode": "harness_loop",
+      "turns": 31,
+      "tool_calls": 30,
+      "stop_reason": "max_tool_calls",
+      "final_text": "",
+      "usage": {
+        "prompt": 227514,
+        "completion": 2254
+      },
+      "attempt": 3,
+      "duration_s": 35.938,
+      "tests": {
+        "exit_code": 1,
+        "timed_out": false,
+        "passed": 3,
+        "failed": 1,
+        "errors": 0,
+        "skipped": 0,
+        "passed_all": false,
+        "duration_s": 0.422
+      },
+      "protected_changes": [],
+      "patch_sha256": "c3640542e6b4b083296b7b90591da3aa085de28097776797811e9a2a82381468"
+    }
+  ]
+}

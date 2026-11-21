@@ -1,0 +1,99 @@
+{
+  "schema": "benchmark_result/1.0",
+  "run_id": "claude-s3_inventory-r1",
+  "scenario": "s3_inventory",
+  "repeat": 1,
+  "backend": "claude",
+  "provider": "claude-code-cli",
+  "model": "claude-sonnet-5-5",
+  "model_digest": null,
+  "quantization": null,
+  "base_commit": "87f2bcabdf9f1e899e4f1dea5a599b21239e1849",
+  "outcome": "SUCCESS",
+  "functional_success": true,
+  "infra_failure": false,
+  "human_intervention": false,
+  "error": null,
+  "attempts": 1,
+  "duration_s": 14.578,
+  "tool_calls": 10,
+  "tool_errors": 0,
+  "policy_refusals": 0,
+  "tool_usage": {
+    "list_files": 1,
+    "read_file": 3,
+    "replace_in_file": 4,
+    "run_tests": 2
+  },
+  "tests_before": {
+    "exit_code": 1,
+    "timed_out": false,
+    "passed": 1,
+    "failed": 3,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": false,
+    "duration_s": 0.469
+  },
+  "tests_after": {
+    "exit_code": 0,
+    "timed_out": false,
+    "passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": true,
+    "duration_s": 0.422
+  },
+  "hidden_tests": {
+    "exit_code": 0,
+    "timed_out": false,
+    "passed": 8,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed_all": true,
+    "duration_s": 0.407
+  },
+  "tokens": {
+    "prompt": 23100,
+    "completion": 1202,
+    "measured": true
+  },
+  "resources": {
+    "scope": "system-wide (GPU and RAM are shared with the desktop and other processes)",
+    "gpu_mem_used_mib": {
+      "max": 8444.0,
+      "mean": 8444.0,
+      "samples": 8
+    },
+    "gpu_util_pct": {
+      "max": 96.0,
+      "mean": 59.6,
+      "samples": 8
+    },
+    "ram_used_mib": {
+      "max": 25519.3,
+      "mean": 25105.3,
+      "samples": 8
+    },
+    "cpu_busy_pct_mean": 24.8
+  },
+  "contract_violations": [],
+  "diff": {
+    "files": [
+      "src/inventory/models.py",
+      "src/inventory/store.py"
+    ],
+    "lines_added": 7,
+    "lines_removed": 4,
+    "sha256": "4945d1f7c6137af33e2a94363cb36da8f6e738a291223bb64fce23d184ff0538"
+  },
+  "evidence": {
+    "run_manifest": "run_manifest.json",
+    "tool_calls": "tool_calls.jsonl",
+    "events": "events.jsonl",
+    "patch": "changes.patch",
+    "attempts": "attempts/"
+  }
+}

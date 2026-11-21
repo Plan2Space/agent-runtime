@@ -1,0 +1,74 @@
+{
+  "generated_at": "2026-11-20T23:35:48.151383+00:00",
+  "backends": {
+    "qwen": {
+      "status": "OK",
+      "model": "qwen3:14b",
+      "digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+      "quantization": "Q4_K_M",
+      "context_window": 40960,
+      "tool_calls": [
+        {
+          "name": "list_files",
+          "arguments": {
+            "path": "."
+          }
+        }
+      ],
+      "tool_results_ok": [
+        true
+      ],
+      "usage": {
+        "prompt_tokens": 336,
+        "completion_tokens": 19
+      },
+      "wall_s": 3.53
+    },
+    "llama": {
+      "status": "OK",
+      "model": "llama3.1:8b",
+      "digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
+      "quantization": "Q4_K_M",
+      "context_window": 131072,
+      "tool_calls": [
+        {
+          "name": "list_files",
+          "arguments": {
+            "path": "."
+          }
+        }
+      ],
+      "tool_results_ok": [
+        true
+      ],
+      "usage": {
+        "prompt_tokens": 351,
+        "completion_tokens": 16
+      },
+      "wall_s": 2.73
+    },
+    "claude": {
+      "status": "OK",
+      "model": "claude-sonnet-5-5",
+      "cli_exit": 0,
+      "subtype": "success",
+      "model_usage": [
+        "claude-sonnet-5-5"
+      ],
+      "tool_calls": [
+        {
+          "name": "list_files",
+          "ok": true
+        }
+      ],
+      "final_text": "hello.txt",
+      "usage": {
+        "prompt_tokens": 1763,
+        "completion_tokens": 61
+      },
+      "total_cost_usd_reported": 0.0029888999999999996,
+      "wall_s": 4.45,
+      "stderr_tail": ""
+    }
+  }
+}

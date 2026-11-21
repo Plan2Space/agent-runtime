@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Plan2Space/agent-runtime/docs/contracts/agent_event.v1.schema.json",
+  "title": "agent_event v1",
+  "description": "One harness event. Written only by agent-runtime (events.jsonl per run); consumers such as agent-bar read it. Same-major minor versions only add optional fields.",
+  "type": "object",
+  "required": ["schema", "event_id", "ts", "run_id", "task_id", "agent", "model", "repo", "worktree", "type",
+               "status", "attempt", "max_attempts", "duration_s", "head_sha", "pr", "error", "tests", "evidence"],
+  "properties": {
+    "schema": {"type": "string", "pattern": "^agent_event/1\\.[0-9]+$"},
+    "event_id": {"type": "string", "minLength": 1},
+    "ts": {"type": "string", "format": "date-time", "description": "ISO 8601 with UTC offset (Z or +00:00)"},
+    "run_id": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "description": "Board Task ID, e.g. S00-11"},
+    "agent": {"type": "string", "description": "backend name: claude | qwen | llama | ..."},
+    "model": {"type": "string", "description": "exact model tag or id"},
+    "repo": {"type": "string"},
+    "worktree": {"type": "string"},
+    "type": {"enum": ["RUN_STARTED", "ATTEMPT_STARTED", "TOOL_CALLED", "TESTS_RAN", "ATTEMPT_FINISHED", "RUN_FINISHED"]},
+    "status": {"enum": ["running", "succeeded", "failed", "blocked", "infra_error", "timeout", "cancelled"]},
+    "attempt": {"type": "integer", "minimum": 0},
+    "max_attempts": {"type": "integer", "minimum": 1},
+    "duration_s": {"type": ["number", "null"]},
+    "head_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "pr": {"type": ["string", "null"], "description": "owner/repo#n when the run belongs to a PR"},
+    "error": {"type": ["string", "null"]},
+    "tests": {
+      "type": ["object", "null"],
+      "properties": {
+        "exit_code": {"type": ["integer", "null"]}, "timed_out": {"type": "boolean"},
+        "passed": {"type": "integer"}, "failed": {"type": "integer"}, "errors": {"type": "integer"},
+        "skipped": {"type": "integer"}, "passed_all": {"type": "boolean"}, "duration_s": {"type": "number"}
+      }
+    },
+    "evidence": {"type": "array", "items": {"type": "string"}, "description": "paths relative to the run directory"},
+    "manifest": {"type": ["object", "null"], "description": "1.1+: on RUN_FINISHED, the run manifest (S00-02 C6)", "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
+  },
+  "additionalProperties": true
+}

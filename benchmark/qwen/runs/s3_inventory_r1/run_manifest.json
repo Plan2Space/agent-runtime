@@ -1,0 +1,95 @@
+{
+  "run_id": "qwen-s3_inventory-r1",
+  "task_id": "S00-11",
+  "scenario": "s3_inventory",
+  "repeat": 1,
+  "backend": "qwen",
+  "provider": "ollama",
+  "model": "qwen3:14b",
+  "model_digest": "bdbd181c33f2ed1b31c972991882db3cf4d192569092138a7d29e973cd9debe8",
+  "quantization": "Q4_K_M",
+  "context_window": 40960,
+  "sampling": {
+    "temperature": 0.3,
+    "seed": 1001,
+    "num_ctx": 16384,
+    "think": false
+  },
+  "base_commit": "87f2bcabdf9f1e899e4f1dea5a599b21239e1849",
+  "worktree": "I:\\p2s-b-bench\\w2\\wt\\qwen\\s3_inventory_r1",
+  "limits": {
+    "max_tool_calls": 30,
+    "attempt_timeout_s": 600,
+    "max_attempts": 3,
+    "tool_timeout_s": 120
+  },
+  "policy": {
+    "enabled": [
+      "git_diff",
+      "git_status",
+      "list_files",
+      "read_file",
+      "replace_in_file",
+      "run_tests",
+      "write_file"
+    ],
+    "write_deny": [
+      "tests",
+      "tests/*",
+      ".git",
+      ".git/*",
+      "pyproject.toml"
+    ],
+    "read_deny": [
+      ".git/*",
+      ".git"
+    ],
+    "command_allowlist": [],
+    "test_argv": [
+      "E:\\Claude\\worktrees\\p2s-b-agents\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "-q",
+      "-p",
+      "no:cacheprovider",
+      "tests"
+    ],
+    "max_output_chars": 12000,
+    "max_file_bytes": 200000
+  },
+  "system_prompt_sha256": "5fb7e7471b088409356e74743404b54aca445e99c70a4cc760eb61ac30f16892",
+  "started_at": "2026-11-21T00:06:52.408304+00:00",
+  "human_intervention": false,
+  "seed": 1001,
+  "difficulty": 3,
+  "finished_at": "2026-11-21T00:07:01.055965+00:00",
+  "outcome": "FUNCTIONAL_FAILURE",
+  "error": "visible tests pass but hidden evaluator rejects the change",
+  "attempts": [
+    {
+      "mode": "harness_loop",
+      "turns": 10,
+      "tool_calls": 10,
+      "stop_reason": "agent_finished",
+      "final_text": "All tests have passed successfully after making the necessary corrections to the source code. The issues were addressed by ensuring that the `release` method in `store.py` does not raise a KeyError for unknown reservation IDs by using `pop(rid, None)`, updating the `reserve` method to check availability using `self.available(sku)` instead of directly checking stock, and correcting the `active` method in `models.py` to properly determine if a reservation is still active based on the current time. These changes align the implementation with the intended behavior as documented in the docstrings.",
+      "usage": {
+        "prompt": 24581,
+        "completion": 428
+      },
+      "attempt": 1,
+      "duration_s": 7.672,
+      "tests": {
+        "exit_code": 0,
+        "timed_out": false,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed_all": true,
+        "duration_s": 0.391
+      },
+      "protected_changes": [],
+      "patch_sha256": "4d34f376e529a765b3c2afd09469a409a1b99d09624b43b219e60735ce5a1224"
+    }
+  ]
+}
