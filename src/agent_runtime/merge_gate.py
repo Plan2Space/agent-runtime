@@ -170,7 +170,7 @@ def run_gate(gh: GitHubPort, store, repo: str, number: int, *,
                          dry_run=not execute)
         _record(store, res, s, clock, risk_reasons=[], levels=levels)
         return res
-    risk, risk_reasons = classify_risk(s.files, s.labels, file_changes=s.file_changes)
+    risk, risk_reasons = classify_risk(s.files, s.labels, file_changes=s.file_changes, repo=repo)
     ci = ci_state(s.checks)
     ev = evidence_reasons(s, base)
     notes: list[str] = []

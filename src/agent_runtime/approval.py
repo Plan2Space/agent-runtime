@@ -44,6 +44,27 @@ LOW_PATTERNS = ("docs/*", "*.md", "benchmark/*/summary.md")
 # LOW is only for files nothing executes (S00-05 risk table): code run by tests can sabotage pytest in CI too.
 NON_EXECUTABLE_SUFFIXES = (".md", ".rst", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".pdf")
 HIGH_LABELS = frozenset({"risk:high", "contract", "geometry", "permissions"})
+# Per-repo profiles for PRs in OTHER Plan2Space repos (P2S-SESSION-OPERATING-MODEL §6: SPEC/contract, verify.py,
+# validators and gates are HIGH). The patterns above stay the runtime's own and apply to every repo. Keys are the repo
+# name without owner, lower-case. P2S-HARNESS-IMPROVEMENT R1 moves these into a versioned file in each repo.
+REPO_RISK_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
+    # Only SPECs live here; every SPEC is normative, and the map/check script are the repo's gate.
+    "engineering-specs": {"high": ("*.md", "scripts/*")},
+    "evidence": {"high": ("tools/*", "*/verdicts/human.json", "*/cameras*.json", "index.json")},
+    "sketchup-mcp-next": {"high": ("src/p2s_engine/harness/*",)},
+    "claude-engineering-skills": {
+        "high": ("scripts/*-check.sh", "skills/land-pr/*", "skills/pr-review/*"),
+        "medium_floor": ("skills/*/skill.md", "lenses/*"),   # instructions agents execute: never LOW
+    },
+    "agent-bar": {"high": ("agent_bar/cockpit/devmode.py",)},   # blocks irreversible commands (cockpit R31)
+}
+_ROOT_DOCS = ("readme.md", "agents.md", "claude.md")   # engineering-specs: the repo's own guide, not a SPEC
+
+
+def _profile(repo: str | None) -> dict[str, tuple[str, ...]]:
+    if not repo:
+        return {}
+    return REPO_RISK_PROFILES.get(repo.replace("\\", "/").rsplit("/", 1)[-1].lower(), {})
 # A test patch weakens or disables tests when it drops an assertion, adds a skip/xfail/exit, or reaches into pytest
 # itself (S00-05 risk table).
 _REMOVED_ASSERT = re.compile(r"^-(?!--)\s*.*\bassert", re.MULTILINE)
@@ -76,20 +97,28 @@ def weakens_tests(patch: str | None) -> bool:
 
 
 def classify_risk(changed_files: Sequence[str], labels: Iterable[str] = (), *,
-                  file_changes: Mapping[str, Mapping[str, Any]] | None = None) -> tuple[str, list[str]]:
+                  file_changes: Mapping[str, Mapping[str, Any]] | None = None,
+                  repo: str | None = None) -> tuple[str, list[str]]:
     """Deterministic risk: HIGH beats MEDIUM beats LOW. Empty change sets are MEDIUM (nothing to prove LOW).
 
     ``file_changes`` maps a path to its GitHub ``status`` (added/modified/removed/renamed) and ``patch``.
-    Without it a test file cannot be proven new, so it is never LOW."""
+    Without it a test file cannot be proven new, so it is never LOW.
+    ``repo`` ("owner/name" or "name") adds that repo's profile from ``REPO_RISK_PROFILES``; without it only the
+    runtime's own rules apply."""
     changes = file_changes or {}
     labels = {lbl.lower() for lbl in labels}
+    prof = _profile(repo)
+    repo_high = prof.get("high", ())
     high: list[str] = [f"high-risk path: {f}" for f in sorted(changed_files) if _match(f, HIGH_PATTERNS)]
+    high += [f"high-risk path for {repo}: {f}" for f in sorted(changed_files)
+             if not _match(f, HIGH_PATTERNS) and _match(f, repo_high) and _norm(f) not in _ROOT_DOCS]
+    medium_floor = MEDIUM_FLOOR_PATTERNS + prof.get("medium_floor", ())
     medium: list[str] = []
     for f in sorted(changed_files):
         info = changes.get(f) or {}
         status, patch = info.get("status"), info.get("patch")
         previous = info.get("previous_filename")
-        if status == "renamed" and previous and _match(previous, HIGH_PATTERNS):
+        if status == "renamed" and previous and (_match(previous, HIGH_PATTERNS) or _match(previous, repo_high)):
             high.append(f"high-risk path renamed: {previous} -> {f}")
             continue
         if (status == "renamed" and previous and not _match(previous, LOW_PATTERNS + TEST_PATTERNS)
@@ -102,7 +131,7 @@ def classify_risk(changed_files: Sequence[str], labels: Iterable[str] = (), *,
         if not _match(f, TEST_PATTERNS):
             if status == "renamed" and not previous:
                 medium.append(f"rename without previous_filename (origin unknown): {f}")
-            elif _match(f, MEDIUM_FLOOR_PATTERNS):
+            elif _match(f, medium_floor):
                 medium.append(f"agent instructions changed: {f}")
             continue
         if weakens_tests(patch):
