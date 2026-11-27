@@ -148,3 +148,14 @@ def test_reexecution_is_idempotent_per_run_id(store):
     n = len(events(store))
     execute_with_recovery(d, lambda c, fb: ok(), store=store, run_id="r1")
     assert len(events(store)) == n
+
+
+def test_infra_failure_is_retried_and_never_counted_against_the_model(store):
+    d = route(TASK, [local("llama3")], Policy(strategy="LOCAL_ONLY"), RES)
+    outs = iter([AttemptOutcome("FAILED", error="INFRA:SKETCHUP_BUSY"), ok()])
+    r = execute_with_recovery(d, lambda c, fb: next(outs), store=store)
+    assert r.status == "SUCCEEDED"
+    done = [p for t, p in events(store) if t == "EXECUTION_COMPLETED"][0]
+    assert done["local_attempts_failed"] == 0
+    failed = [p for t, p in events(store) if t == "EXECUTION_ATTEMPT_FAILED"][0]
+    assert failed["failure_class"] == "TOOL" and failed["infra"] is True

@@ -56,9 +56,14 @@ class ExecutionResult:
     cloud_tokens_measured: int
 
 
+def _is_infra(outcome: AttemptOutcome) -> bool:
+    """Engine/machine failure reported by the local executor ("INFRA:<code>"): not the model's fault."""
+    return (outcome.error or "").startswith("INFRA:")
+
+
 def classify_failure(outcome: AttemptOutcome) -> str:
     """Map a failed attempt to one failure class. Order matters: TOOL_ERROR is the adapter's verdict."""
-    if outcome.status == "TOOL_ERROR":
+    if outcome.status == "TOOL_ERROR" or _is_infra(outcome):
         return "TOOL"
     text = outcome.error or ""
     for name, pattern in _PATTERNS:
@@ -127,8 +132,9 @@ def execute_with_recovery(decision: RoutingDecision, run_attempt: Callable[[Cand
             cls = classify_failure(out)
             rec("EXECUTION_ATTEMPT_FAILED", {"executor_id": cand.executor_id, "kind": cand.kind,
                                              "attempt": attempt, "failure_class": cls,
-                                             "status": out.status, "error": (out.error or "")[:500]})
-            if cand.kind == "local":
+                                             "status": out.status, "error": (out.error or "")[:500],
+                                             "infra": _is_infra(out)})
+            if cand.kind == "local" and not _is_infra(out):
                 local_failed += 1
                 last = (cand.executor_id, cls)
             feedback = {"failure_class": cls, "attempt": attempt, "executor_id": cand.executor_id,

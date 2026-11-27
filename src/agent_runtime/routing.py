@@ -84,6 +84,7 @@ class Policy:
     manual_executor: str | None = None
     min_success_rate: float = 0.5
     preferred: tuple = ()
+    max_recent_failures: int | None = None  # None = recurring failures do not demote
 
     def __post_init__(self) -> None:
         if self.strategy not in STRATEGIES:
@@ -138,7 +139,8 @@ class RoutingDecision:
                 "rejected": dict(sorted(self.rejected.items()))}
 
 
-def _local_reject(ex: Executor, task: Task, policy: Policy, res: Resources) -> str | None:
+def _local_reject(ex: Executor, task: Task, policy: Policy, res: Resources,
+                  recent_failures: dict) -> str | None:
     if not ex.available:
         return "UNAVAILABLE"
     if not task.tools <= ex.tools:
@@ -152,6 +154,9 @@ def _local_reject(ex: Executor, task: Task, policy: Policy, res: Resources) -> s
         return "COMPLEXITY_ABOVE_PROVEN"
     if ex.vram_mib > res.free_vram_mib:
         return "INSUFFICIENT_RESOURCES"
+    if (policy.max_recent_failures is not None
+            and recent_failures.get((ex.executor_id, task.task_type), 0) >= policy.max_recent_failures):
+        return "RECURRING_FAILURE"
     return None
 
 
@@ -186,7 +191,9 @@ def _manual(task: Task, executors: list[Executor], policy: Policy, res: Resource
     return RoutingDecision(task, policy, (Candidate(eid, ex.kind, "MANUAL", "user-selected executor"),), {})
 
 
-def route(task: Task, executors: list[Executor], policy: Policy, resources: Resources) -> RoutingDecision:
+def route(task: Task, executors: list[Executor], policy: Policy, resources: Resources, *,
+          recent_failures: dict | None = None) -> RoutingDecision:
+    """``recent_failures``: {(executor_id, task_type): count} from the PoC failure records."""
     if policy.strategy == "MANUAL":
         return _manual(task, executors, policy, resources)
 
@@ -202,7 +209,7 @@ def route(task: Task, executors: list[Executor], policy: Policy, resources: Reso
                 det.append(Candidate(ex.executor_id, ex.kind, "DETERMINISTIC", "recipe automates task type"))
             continue
         if ex.kind == "local":
-            why = _local_reject(ex, task, policy, resources)
+            why = _local_reject(ex, task, policy, resources, recent_failures or {})
             if why:
                 rejected[ex.executor_id] = why
             else:
