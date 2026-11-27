@@ -5,7 +5,10 @@ import pytest
 
 from agent_runtime.event_store import EventStore
 from agent_runtime.execution import (
-    AttemptOutcome, Recovery, classify_failure, execute_with_recovery,
+    AttemptOutcome,
+    Recovery,
+    classify_failure,
+    execute_with_recovery,
 )
 from agent_runtime.routing import Executor, Policy, Proof, Resources, Task, route
 

@@ -4,11 +4,19 @@ import json
 
 import pytest
 
-from agent_runtime.agent_identity import AgentIdentity, OwnershipConflict, claim_task, register_session
+from agent_runtime.agent_identity import (
+    AgentIdentity,
+    OwnershipConflict,
+    claim_task,
+    register_session,
+)
 from agent_runtime.event_store import EventStore
 from agent_runtime.proofs import ProofError, load_capability_proofs, load_failures
 from agent_runtime.routing import Executor, Policy, Resources, Task, route
-from agent_runtime.token_baseline import claude_transcript_usage, production_cloud_tokens
+from agent_runtime.token_baseline import (
+    claude_transcript_usage,
+    production_cloud_tokens,
+)
 
 BUILD = "build"
 
@@ -24,7 +32,7 @@ def proofs_doc(items):
 
 def item(eid, runs=10, passes=9, fails=1, infra=0, rate=0.9):
     return {"executor_id": eid, "task_type": BUILD, "runs": runs, "passes": passes, "fails": fails,
-            "infra_errors": infra, "success_rate": rate, "engine_sha40": "a" * 40,
+            "infra_errors": infra, "success_rate": rate, "engine_sha40": ["a" * 40],
             "source": [{"path": "bench/llama/benchmark_run.json", "sha256": "b" * 64}]}
 
 

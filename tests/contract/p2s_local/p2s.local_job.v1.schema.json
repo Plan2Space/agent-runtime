@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "p2s.local_job.v1",
+  "title": "Job do roteador Local First para o executor local (agent-bar)",
+  "type": "object",
+  "required": ["schema", "job_id", "task_type", "executor", "inputs", "engine_ref"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "p2s.local_job.v1"},
+    "job_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+    "task_type": {"enum": ["build", "render"]},
+    "executor": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {"enum": ["local", "deterministic"]},
+        "model_id": {"type": "string", "minLength": 1},
+        "adapter": {"const": "ollama"},
+        "tier": {"type": ["string", "null"]}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "oneOf": [
+        {"required": ["fixture_ref"], "additionalProperties": false,
+         "properties": {"fixture_ref": {"type": "string"}}},
+        {"required": ["run_id", "cameras"], "additionalProperties": false,
+         "properties": {"run_id": {"type": "string", "pattern": "^lx-[0-9A-Za-z_-]+$"},
+                        "cameras": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 2,
+                                    "uniqueItems": true}}}
+      ]
+    },
+    "engine_ref": {
+      "type": "object",
+      "required": ["repo", "sha40"],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {"const": "Plan2Space/sketchup-mcp-next"},
+        "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "attempt": {"type": "integer", "minimum": 1},
+    "feedback": {
+      "type": ["object", "null"],
+      "required": ["failure_class"],
+      "properties": {
+        "failure_class": {"enum": ["PROTOCOL", "SCHEMA", "CONTEXT", "TOOL", "CAPABILITY"]},
+        "attempt": {"type": "integer"},
+        "executor_id": {"type": "string"},
+        "error": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

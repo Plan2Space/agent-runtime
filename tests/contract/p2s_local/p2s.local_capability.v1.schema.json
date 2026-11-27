@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "p2s.local_capability.v1",
+  "title": "Prova de capacidade por (executor, tipo de tarefa), agregada do benchmark e dos jobs",
+  "type": "object",
+  "required": ["schema", "generated_at", "items"],
+  "properties": {
+    "schema": {"const": "p2s.local_capability.v1"},
+    "generated_at": {"type": "string"},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["executor_id", "task_type", "runs", "passes", "fails", "infra_errors", "success_rate",
+                     "engine_sha40", "source"],
+        "properties": {
+          "executor_id": {"type": "string"},
+          "task_type": {"enum": ["discovery", "build", "render"]},
+          "runs": {"type": "integer", "minimum": 0},
+          "passes": {"type": "integer", "minimum": 0},
+          "fails": {"type": "integer", "minimum": 0},
+          "infra_errors": {"type": "integer", "minimum": 0},
+          "success_rate": {"type": ["number", "null"], "minimum": 0, "maximum": 1,
+                           "description": "passes/(passes+fails); null = sem prova (INFRA nao entra)"},
+          "engine_sha40": {"type": "array", "items": {"type": "string"}},
+          "source": {"type": "array", "items": {"type": "object", "required": ["path", "sha256"],
+                                                "properties": {"path": {"type": "string"},
+                                                               "sha256": {"type": "string"}}}}
+        }
+      }
+    }
+  }
+}

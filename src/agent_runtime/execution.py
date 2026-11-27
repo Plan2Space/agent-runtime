@@ -27,9 +27,9 @@ from .routing import Candidate, RoutingDecision
 
 FAILURE_CLASSES = ("PROTOCOL", "SCHEMA", "CONTEXT", "TOOL", "CAPABILITY")
 _PATTERNS = (
-    ("CONTEXT", re.compile(r"context (length|window)|too many tokens|truncat", re.I)),
-    ("SCHEMA", re.compile(r"schema|missing field|unexpected field|validation failed", re.I)),
-    ("PROTOCOL", re.compile(r"invalid json|malformed|tool call|unparseable|protocol", re.I)),
+    ("CONTEXT", re.compile(r"context (length|window)|too many tokens|truncat", re.IGNORECASE)),
+    ("SCHEMA", re.compile(r"schema|missing field|unexpected field|validation failed", re.IGNORECASE)),
+    ("PROTOCOL", re.compile(r"invalid json|malformed|tool call|unparseable|protocol", re.IGNORECASE)),
 )
 
 
@@ -39,6 +39,7 @@ class AttemptOutcome:
     error: str | None = None
     tokens_measured: int | None = None
     tokens_estimated: int | None = None
+    failure_class: str | None = None  # executor's own classification, when it reports one
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,11 @@ def _is_infra(outcome: AttemptOutcome) -> bool:
 
 def classify_failure(outcome: AttemptOutcome) -> str:
     """Map a failed attempt to one failure class. Order matters: TOOL_ERROR is the adapter's verdict."""
-    if outcome.status == "TOOL_ERROR" or _is_infra(outcome):
+    if _is_infra(outcome):
+        return "TOOL"
+    if outcome.failure_class in FAILURE_CLASSES:
+        return outcome.failure_class
+    if outcome.status == "TOOL_ERROR":
         return "TOOL"
     text = outcome.error or ""
     for name, pattern in _PATTERNS:

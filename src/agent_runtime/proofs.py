@@ -15,7 +15,8 @@ from .routing import Proof
 
 PROOFS_SCHEMA = "p2s.local_capability.v1"
 FAILURE_SCHEMA = "p2s.local_failure.v1"
-_ITEM_KEYS = ("executor_id", "task_type", "runs", "passes", "fails", "infra_errors", "success_rate", "source")
+_ITEM_KEYS = ("executor_id", "task_type", "runs", "passes", "fails", "infra_errors", "success_rate",
+              "engine_sha40", "source")
 
 
 class ProofError(ValueError):
@@ -36,7 +37,7 @@ def load_capability_proofs(path: str | Path) -> dict[str, dict[str, Proof]]:
             continue
         if not 0 <= rate <= 1:
             raise ProofError(f"success_rate out of range: {rate!r}")
-        denominator = it["runs"] - it["infra_errors"]
+        denominator = it["passes"] + it["fails"]  # REFUSED and INFRA are not executions of the model
         src = ",".join(f"{s['path']}@{s['sha256'][:12]}" for s in it["source"])
         out.setdefault(it["executor_id"], {})[it["task_type"]] = Proof(
             success_rate=float(rate), runs=int(denominator), source=f"{PROOFS_SCHEMA}:{src}")

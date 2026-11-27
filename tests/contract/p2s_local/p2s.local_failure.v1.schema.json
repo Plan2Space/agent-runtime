@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "p2s.local_failure.v1",
+  "title": "Falha reutilizavel de um executor local (uma linha de JSONL; consumida pelo roteador e pelas skills)",
+  "type": "object",
+  "required": ["schema", "executor_id", "task_type", "tool", "failure_class", "error", "invalid_argument",
+               "contract_misread", "sequence", "helpful_example", "adapter_fix", "skill_hint", "source"],
+  "properties": {
+    "schema": {"const": "p2s.local_failure.v1"},
+    "executor_id": {"type": "string"},
+    "task_type": {"type": "string"},
+    "tool": {"type": ["string", "null"]},
+    "failure_class": {"enum": ["PROTOCOL", "SCHEMA", "CONTEXT", "TOOL", "CAPABILITY"]},
+    "error": {"type": ["string", "null"]},
+    "invalid_argument": {
+      "type": ["object", "null"],
+      "required": ["name", "sent", "expected"],
+      "properties": {"name": {"type": "string"}, "sent": {}, "expected": {}}
+    },
+    "contract_misread": {"type": ["string", "null"]},
+    "sequence": {"type": ["array", "null"], "items": {"type": "string"}},
+    "sent": {},
+    "helpful_example": {"type": ["object", "null"]},
+    "adapter_fix": {"type": ["string", "null"]},
+    "skill_hint": {"type": ["string", "null"]},
+    "source": {"type": "string"}
+  }
+}
