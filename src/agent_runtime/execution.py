@@ -12,7 +12,7 @@ Success is attributed to the executor that produced it (``executed_by``), never 
 that was tried. Measured and estimated tokens are recorded in separate fields and never summed.
 
 ``run_attempt(candidate, feedback) -> AttemptOutcome`` is the seam to the real executor; the
-PoC's local executor (C8 ``AgentAdapter`` / production queue) plugs in here.
+local executor (C8 ``AgentAdapter`` / production queue) plugs in here.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class AttemptOutcome:
 @dataclass(frozen=True)
 class Recovery:
     attempts_per_executor: int = 2
-    max_total_attempts: int = 4  # SPEC P2S-LOCAL-FIRST-EXECUTION-001 §3/§4 (engineering-specs#95): 2 por executor, 4 no total
+    max_total_attempts: int = 4  # SPEC P2S-LOCAL-FIRST-EXECUTION-001 §3/§4: 2 per executor, 4 in total
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,6 @@
-# Local First routing — auditoria e desenho (Frente E, 2026-11-27)
+# Local First routing — auditoria e desenho (2026-11-27)
 
-SPEC de origem: P2S-LOCAL-FIRST-EXECUTION-001 §4–§8 (pedido literal do Felipe, 2026-11-27).
+SPEC de origem: P2S-LOCAL-FIRST-EXECUTION-001 §4–§8.
 
 ## O que já existia (auditoria)
 
@@ -29,12 +29,12 @@ orquestrador aqui: `routing.py` fica entre o `claim` (job) e o `AgentAdapter` (e
 - `EventStore`: fatos RECORDED `ROUTING_DECIDED`, `ROUTING_REFUSED`, `EXECUTION_ATTEMPT_STARTED`,
   `EXECUTION_ATTEMPT_FAILED`, `EXECUTION_ESCALATED`, `EXECUTION_COMPLETED`, `EXECUTION_FAILED`,
   `TOKENS_CONSUMED` (`measured` e `estimated` em campos separados), `aggregate_type="task"`,
-  `producer="router"`. A Frente D lê estes eventos.
+  `producer="router"`. A UI lê estes eventos.
 
 ## Em aberto
 
-- Origem das `Proof`: matriz da Frente A + `benchmark_result` da PoC/C. O adaptador que monta
+- Origem das `Proof`: matriz de capacidade + `benchmark_result` do executor local. O adaptador que monta
   `Executor.proofs` a partir desses registros entra quando o formato da matriz estiver fixado.
-- `run_attempt` real: interface combinada com a PoC (executor local + fila de produção) —
+- `run_attempt` real: interface combinada com o executor local (executor local + fila de produção) —
   "executar a tarefa X com o executor Y" contra um motor pinado por SHA/tag, nunca uma worktree.
 - Item 8 do §6 (falha recorrente → melhoria do motor) é leitura agregada dos eventos, não lógica aqui.

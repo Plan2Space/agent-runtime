@@ -5,14 +5,14 @@ Evolves the existing distribution path instead of adding a second orchestrator:
 (deterministic recipe, local model or cloud model) runs it, and the chosen executor is driven
 through the existing C8 ``AgentAdapter``. Pure: no I/O, no clock, no randomness.
 
-Priority (Felipe, 2026-11-27):
+Priority (SPEC P2S-LOCAL-FIRST-EXECUTION-001):
   1. deterministic automation when the task needs no LLM;
   2. local model with proven capability for this task type;
   3. another compatible local model (also proven, ranked lower);
   4. cloud, only when the strategy allows it AND it is authorized AND budget remains.
 
 A model is never chosen because it is installed: a local executor without a ``Proof`` for the
-task type (from the Frente A matrix / benchmark C0–C9 / history) is rejected. There is no hidden
+task type (from the capability matrix / benchmark C0–C9 / history) is rejected. There is no hidden
 cloud fallback: every excluded executor is listed in ``rejected`` with a reason code.
 """
 

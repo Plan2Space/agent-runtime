@@ -150,9 +150,9 @@ def test_reexecution_is_idempotent_per_run_id(store):
     assert len(events(store)) == n
 
 
-# SPEC P2S-LOCAL-FIRST-EXECUTION-001 (Plan2Space/engineering-specs#95, APROVADO HIGH 01005b11),
+# SPEC P2S-LOCAL-FIRST-EXECUTION-001,
 # §3 l.73 / §4 l.111: default attempt limit is 2 per executor and 4 in total. Changing these
-# numbers requires changing the SPEC first (decision D-LF-2), not this test.
+# numbers requires changing the SPEC first, not this test.
 SPEC_ATTEMPTS_PER_EXECUTOR = 2
 SPEC_MAX_TOTAL_ATTEMPTS = 4
 
