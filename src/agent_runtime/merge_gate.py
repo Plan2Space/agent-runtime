@@ -1,6 +1,6 @@
 """Merge gate (S00-14): the runtime reads a PR from GitHub, decides, and merges LOW and approved MEDIUM.
 
-Policy (Felipe, 2026-11-21):
+Policy (maintainer decision, 2026-11-21):
 
 - LOW + CI green + valid evidence -> the runtime merges.
 - MEDIUM + CI green + valid evidence + a GitHub review in state APPROVED, at the exact HEAD, by a login configured
