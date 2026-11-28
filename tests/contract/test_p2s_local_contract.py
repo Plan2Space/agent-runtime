@@ -137,3 +137,51 @@ def test_capability_loader_reads_a_schema_shaped_document(tmp_path):
     p.write_text(json.dumps(doc), encoding="utf-8")
     proof = load_capability_proofs(p)["ollama:llama3.1:8b@46e0c10c"]["build"]
     assert proof.success_rate == 0.8 and proof.runs == 10  # passes+fails: INFRA and REFUSED stay out
+
+
+# -- invalid or refused outcome: always a classified failure and a terminal fact ------------------
+def _writer(content):
+    def runner(argv, job_path, out_dir):
+        job = json.loads(Path(job_path).read_text(encoding="utf-8"))
+        d = Path(out_dir) / job["job_id"]
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "outcome.json").write_text(content(job["job_id"]), encoding="utf-8")
+        return 0
+    return runner
+
+
+BAD_OUTCOMES = {
+    "not_json": lambda jid: "{not json",
+    "wrong_schema": lambda jid: json.dumps(outcome_doc(job_id=jid, schema="p2s.local_outcome.v2")),
+    "cloud_used": lambda jid: json.dumps(outcome_doc(job_id=jid, cloud={"tokens": 5, "providers_called": ["x"]})),
+    "unknown_failure_class": lambda jid: json.dumps(outcome_doc(job_id=jid, status="FAILED", failure_class="WEIRD")),
+}
+
+
+@pytest.mark.parametrize("case", sorted(BAD_OUTCOMES))
+def test_invalid_outcome_is_a_protocol_failure_not_an_exception(tmp_path, case):
+    out = run_local_job(LOCAL, None, task_id="t1", task_type="build", inputs={"fixture_ref": "r"}, sha40=SHA,
+                        attempt=1, work_dir=tmp_path, runner=_writer(BAD_OUTCOMES[case]))
+    assert out.status == "FAILED" and out.failure_class == "PROTOCOL"
+    assert out.error.startswith("PROTOCOL:INVALID_OUTCOME")
+
+
+@pytest.mark.parametrize("case", sorted(BAD_OUTCOMES))
+def test_invalid_outcome_still_records_a_terminal_fact(tmp_path, case):
+    from agent_runtime.event_store import EventStore
+    from agent_runtime.execution import execute_with_recovery
+    from agent_runtime.routing import Executor, Policy, Proof, Resources, Task, route
+
+    store = EventStore(tmp_path / "e.db", clock=lambda: 1.0)
+    ex = Executor(LOCAL.executor_id, "local", tools=frozenset({"build"}), proofs={"build": Proof(0.9, 10, "x")})
+    d = route(Task("t1", "build", 1, frozenset({"build"})), [ex], Policy(strategy="LOCAL_ONLY"), Resources(16000))
+    n = {"a": 0}
+
+    def run(c, fb):
+        n["a"] += 1
+        return run_local_job(c, fb, task_id="t1", task_type="build", inputs={"fixture_ref": "r"}, sha40=SHA,
+                             attempt=n["a"], work_dir=tmp_path / "w", runner=_writer(BAD_OUTCOMES[case]))
+
+    r = execute_with_recovery(d, run, store=store)
+    types = [e["event_type"] for e in store.events(job_id="t1")]
+    assert r.status == "FAILED" and types[-1] == "EXECUTION_FAILED"

@@ -122,7 +122,10 @@ def execute_with_recovery(decision: RoutingDecision, run_attempt: Callable[[Cand
             total += 1
             rec("EXECUTION_ATTEMPT_STARTED", {"executor_id": cand.executor_id, "kind": cand.kind,
                                               "tier": cand.tier, "attempt": attempt, "feedback": feedback})
-            out = run_attempt(cand, feedback)
+            try:
+                out = run_attempt(cand, feedback)
+            except Exception as exc:  # the adapter crashed: still a bounded, recorded failure, never a lost task
+                out = AttemptOutcome("FAILED", error=f"INFRA:RUN_ATTEMPT_RAISED {type(exc).__name__}: {exc}"[:500])
             if out.tokens_measured is not None or out.tokens_estimated is not None:
                 rec("TOKENS_CONSUMED", {"executor_id": cand.executor_id, "kind": cand.kind,
                                         "measured": out.tokens_measured, "estimated": out.tokens_estimated})

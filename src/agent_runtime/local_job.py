@@ -86,4 +86,12 @@ def run_local_job(candidate: Candidate, feedback: dict | None, *, task_id: str, 
     out_path = outs / job["job_id"] / "outcome.json"
     if not out_path.is_file():
         return AttemptOutcome("FAILED", error=f"INFRA:NO_OUTCOME exit={code}")
-    return outcome_from_document(json.loads(out_path.read_text(encoding="utf-8")))
+    try:
+        doc = json.loads(out_path.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict):
+            raise ValueError(f"outcome is not an object: {type(doc).__name__}")
+        return outcome_from_document(doc)
+    except (ValueError, KeyError) as exc:  # JSONDecodeError is a ValueError
+        # The executor answered outside the contract (bad JSON, wrong schema, cloud use, unknown class):
+        # the executor's protocol failure, recorded like any other failure, never an exception.
+        return AttemptOutcome("FAILED", error=f"PROTOCOL:INVALID_OUTCOME {exc}"[:500], failure_class="PROTOCOL")

@@ -182,3 +182,17 @@ def test_default_recovery_stops_an_always_failing_run_at_the_spec_total(store):
                               store=store)
     assert r.status == "FAILED" and len(calls) == SPEC_MAX_TOTAL_ATTEMPTS
     assert calls == ["m0", "m0", "m1", "m1"]
+
+
+def test_run_attempt_that_raises_is_an_infra_failure_with_a_terminal_fact(store):
+    d = route(TASK, [local("llama3")], Policy(strategy="LOCAL_ONLY"), RES)
+
+    def boom(c, fb):
+        raise RuntimeError("adapter crashed")
+
+    r = execute_with_recovery(d, boom, store=store)
+    evs = events(store)
+    assert r.status == "FAILED" and evs[-1][0] == "EXECUTION_FAILED"
+    failed = [p for t, p in evs if t == "EXECUTION_ATTEMPT_FAILED"]
+    assert failed and failed[0]["infra"] is True and failed[0]["error"].startswith("INFRA:RUN_ATTEMPT_RAISED")
+    assert evs[-1][1]["local_attempts_failed"] == 0
