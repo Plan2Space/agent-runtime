@@ -65,7 +65,7 @@ Leitor rejeita major diferente de 1 e ignora campo desconhecido. O módulo Pytho
 `decided_at`, `policy`. Um merge real grava também `PR_MERGED` (`pr`, `head_sha`, `merge_commit`, `risk`,
 `merged_by`, `approval_source`, `merged_at`).
 
-Política (Felipe, 2026-11-21): LOW + CI verde + evidência → merge pelo runtime; MEDIUM idem **e** review do GitHub
+Política (decisão do mantenedor, 2026-11-21): LOW + CI verde + evidência → merge pelo runtime; MEDIUM idem **e** review do GitHub
 `APPROVED` no HEAD exato por um login configurado como aprovador MEDIUM, que não seja o autor do PR e cujo review mais
 recente seja essa aprovação; HIGH → nunca pelo runtime (`HIGH_HUMAN_ONLY`), mesmo com review. Comentários não disparam
 merge. Sempre `--match-head-commit`, nunca `--admin`; dry-run por padrão. Nenhum fato contém texto de aprovação (R16).

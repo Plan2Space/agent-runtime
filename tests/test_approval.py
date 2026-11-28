@@ -8,7 +8,7 @@ H1 = "a" * 40
 H2 = "b" * 40
 
 
-def rec(sha=H1, who="fmodesto30", risk="HIGH"):
+def rec(sha=H1, who="approver-high", risk="HIGH"):
     return ApprovalRecord("Plan2Space/agent-runtime#60", sha, risk, who, "2026-11-20T23:00:00Z",
                           "https://github.com/Plan2Space/agent-runtime/pull/60#pullrequestreview-1")
 
@@ -68,11 +68,11 @@ def test_bot_reviews_are_ignored_and_bot_cannot_be_approver():
 
 
 def test_human_github_review_maps_to_record():
-    review = {"state": "APPROVED", "commit_id": H1, "user": {"login": "fmodesto30", "type": "User"},
+    review = {"state": "APPROVED", "commit_id": H1, "user": {"login": "approver-high", "type": "User"},
               "submitted_at": "2026-11-20T23:00:00Z", "html_url": "https://github.com/x/y/pull/1#pullrequestreview-9"}
-    cfg = {"HIGH": ["fmodesto30"]}
+    cfg = {"HIGH": ["approver-high"]}
     r = from_github_review(review, pr="x/y#1", risk="HIGH", approvers=cfg)
-    assert r.head_sha == H1 and r.approver == "fmodesto30"
+    assert r.head_sha == H1 and r.approver == "approver-high"
     assert from_github_review({**review, "state": "COMMENTED"}, pr="x/y#1", risk="HIGH", approvers=cfg) is None
 
 
@@ -83,34 +83,34 @@ def _rv(login):
 
 def test_reviewer_account_approved_on_high_is_not_an_approval():
     # the MEDIUM reviewer-agent account never counts for HIGH, even if it is also listed under MEDIUM
-    cfg = {"MEDIUM": ["fmmodesto"], "HIGH": ["fmodesto30"]}
-    assert from_github_review(_rv("fmmodesto"), pr="x/y#1", risk="HIGH", approvers=cfg) is None
-    assert from_github_review(_rv("FMModesto"), pr="x/y#1", risk="MEDIUM", approvers=cfg).approver == "FMModesto"
+    cfg = {"MEDIUM": ["approver-med"], "HIGH": ["approver-high"]}
+    assert from_github_review(_rv("approver-med"), pr="x/y#1", risk="HIGH", approvers=cfg) is None
+    assert from_github_review(_rv("Approver-Med"), pr="x/y#1", risk="MEDIUM", approvers=cfg).approver == "Approver-Med"
 
 
 def test_review_from_a_login_outside_the_list_is_not_an_approval():
-    assert from_github_review(_rv("someone"), pr="x/y#1", risk="MEDIUM", approvers={"MEDIUM": ["fmmodesto"]}) is None
+    assert from_github_review(_rv("someone"), pr="x/y#1", risk="MEDIUM", approvers={"MEDIUM": ["approver-med"]}) is None
 
 
 def test_empty_or_missing_list_means_nobody_approves():
     for cfg in ({}, {"MEDIUM": []}, {"HIGH": []}):
         for risk in ("LOW", "MEDIUM", "HIGH"):
-            assert from_github_review(_rv("fmmodesto"), pr="x/y#1", risk=risk, approvers=cfg) is None
+            assert from_github_review(_rv("approver-med"), pr="x/y#1", risk=risk, approvers=cfg) is None
 
 
 def test_review_by_the_pr_author_is_not_an_approval():
-    cfg = {"MEDIUM": ["fmmodesto"]}
-    assert from_github_review(_rv("fmmodesto"), pr="x/y#1", risk="MEDIUM", approvers=cfg, author="FMMODESTO") is None
+    cfg = {"MEDIUM": ["approver-med"]}
+    assert from_github_review(_rv("approver-med"), pr="x/y#1", risk="MEDIUM", approvers=cfg, author="APPROVER-MED") is None
 
 
 def test_approvers_are_mandatory_fail_closed():
     with pytest.raises(TypeError):
-        from_github_review(_rv("fmmodesto"), pr="x/y#1", risk="MEDIUM")   # no approvers -> refuse to guess
+        from_github_review(_rv("approver-med"), pr="x/y#1", risk="MEDIUM")   # no approvers -> refuse to guess
 
 
 def test_review_on_an_old_commit_does_not_count_at_head():
-    a = from_github_review(_rv("fmmodesto"), pr="Plan2Space/agent-runtime#60", risk="MEDIUM",
-                           approvers={"MEDIUM": ["fmmodesto"]})
+    a = from_github_review(_rv("approver-med"), pr="Plan2Space/agent-runtime#60", risk="MEDIUM",
+                           approvers={"MEDIUM": ["approver-med"]})
     a = ApprovalRecord(pr="Plan2Space/agent-runtime#60", head_sha=a.head_sha, risk="MEDIUM", approver=a.approver,
                        approved_at=a.approved_at, source=a.source)
     d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=H2, risk="MEDIUM", ci_state="success",
@@ -171,17 +171,17 @@ def test_agent_instructions_are_at_least_medium_and_skip_word_in_source_is_not_h
 SHA = "c" * 40
 
 
-def comment(body=f"APROVADO HIGH {SHA}", login="fmodesto30", utype="User", created="2026-11-21T10:00:00Z",
+def comment(body=f"APROVADO HIGH {SHA}", login="approver-high", utype="User", created="2026-11-21T10:00:00Z",
             updated="2026-11-21T10:00:00Z"):
     return {"body": body, "user": {"login": login, "type": utype}, "created_at": created, "updated_at": updated,
             "html_url": "https://github.com/Plan2Space/agent-runtime/pull/60#issuecomment-1"}
 
 
 def test_comment_with_exact_grammar_from_an_approver_is_an_approval_at_that_sha():
-    r = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"})
-    assert (r.head_sha, r.risk, r.approver, r.kind) == (SHA, "HIGH", "fmodesto30", "comment")
+    r = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"approver-high"})
+    assert (r.head_sha, r.risk, r.approver, r.kind) == (SHA, "HIGH", "approver-high", "comment")
     r2 = from_github_comment(comment(body=f"Revisei.\nAPPROVED MEDIUM {SHA}\nRiscos aceitos."),
-                             pr="Plan2Space/agent-runtime#60", approvers={"FMODESTO30"})
+                             pr="Plan2Space/agent-runtime#60", approvers={"APPROVER-HIGH"})
     assert r2.risk == "MEDIUM"
 
 
@@ -195,11 +195,11 @@ def test_comment_with_exact_grammar_from_an_approver_is_an_approval_at_that_sha(
     comment(body=f"APROVADO HIGH {SHA}\nAPROVADO HIGH {'d' * 40}"),          # ambiguous: two lines
 ])
 def test_comment_that_is_not_an_unambiguous_human_approval_is_ignored(c):
-    assert from_github_comment(c, pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"}) is None
+    assert from_github_comment(c, pr="Plan2Space/agent-runtime#60", approvers={"approver-high"}) is None
 
 
 def test_author_can_approve_own_pr_by_comment_and_merge_follows_the_head_rule():
-    a = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"})
+    a = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"approver-high"})
     d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[a])
     assert d.eligible and not d.automatic and d.approval.kind == "comment"
     stale = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha="e" * 40, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[a])
@@ -208,7 +208,7 @@ def test_author_can_approve_own_pr_by_comment_and_merge_follows_the_head_rule():
 
 def test_approval_declaring_a_lower_risk_does_not_cover_the_pr():
     low = from_github_comment(comment(body=f"APROVADO MEDIUM {SHA}"), pr="Plan2Space/agent-runtime#60",
-                              approvers={"fmodesto30"})
+                              approvers={"approver-high"})
     d = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[low])
     assert not d.eligible and any("lower than HIGH" in r for r in d.reasons)
     ok = merge_decision(pr="Plan2Space/agent-runtime#60", head_sha=SHA, risk="MEDIUM", ci_state="success", evidence_valid=True, approvals=[low])
@@ -217,7 +217,7 @@ def test_approval_declaring_a_lower_risk_does_not_cover_the_pr():
 
 def test_comment_approval_round_trips_through_the_store_and_old_records_read_as_review(tmp_path):
     store = ApprovalStore(EventStore(tmp_path / "e.db"))
-    a = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"fmodesto30"})
+    a = from_github_comment(comment(), pr="Plan2Space/agent-runtime#60", approvers={"approver-high"})
     store.record(a)
     store.record(rec())                         # written the old way (no explicit kind)
     kinds = sorted(r.kind for r in store.approvals("Plan2Space/agent-runtime#60"))

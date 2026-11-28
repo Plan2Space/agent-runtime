@@ -1,7 +1,7 @@
 # S00-04 — Inventário de hardware e modelos locais
 
 Issue: [agent-runtime#53](https://github.com/Plan2Space/agent-runtime/issues/53) · Medido em 2026-11-20 (19:59–20:10 -03:00)
-na máquina de desenvolvimento do Felipe. Tudo abaixo vem de comando executado nesta data. Os JSONs brutos estão em
+na máquina de desenvolvimento do mantenedor. Tudo abaixo vem de comando executado nesta data. Os JSONs brutos estão em
 [`evidence/`](evidence/), e a sonda é [`scripts/local_model_probe.py`](../../scripts/local_model_probe.py).
 
 ## Hardware e sistema
@@ -30,15 +30,15 @@ na máquina de desenvolvimento do Felipe. Tudo abaixo vem de comando executado n
 ## Achado principal: os modelos não foram perdidos, o servidor olha para o lugar errado
 
 - A variável de usuário `OLLAMA_MODELS=I:\ollama\models` está definida, mas **todos** os `server*.log` (16–20/11)
-  mostram o `serve` do app com `OLLAMA_MODELS:C:\Users\felip_local\.ollama\models` e `total blobs: 0`. A configuração
+  mostram o `serve` do app com `OLLAMA_MODELS:%USERPROFILE%\.ollama\models` e `total blobs: 0`. A configuração
   do app Ollama se sobrepõe à variável: em `%LOCALAPPDATA%\Ollama\db.sqlite`, tabela `settings`, coluna `models`
-  vale `C:\Users\felip_local\.ollama\models` (lido numa cópia do arquivo, sem alterar o original).
+  vale `%USERPROFILE%\.ollama\models` (lido numa cópia do arquivo, sem alterar o original).
 - Resultado: `ollama list` em `:11434` retorna vazio, embora `I:\ollama\models` contenha 3 modelos de 2026-09-27.
 - Os 14 blobs em `I:\ollama\models\blobs` tiveram o SHA-256 recalculado, e **14/14 batem com o nome**: nada
   corrompido.
 - Para medir sem alterar a configuração do app, a sonda rodou contra um `ollama serve` temporário em `127.0.0.1:11435`
   com `OLLAMA_MODELS=I:\ollama\models` e `OLLAMA_NOPRUNE=1`. A correção definitiva (apontar o app para `I:`) é uma
-  mudança de configuração persistente e espera autorização do Felipe.
+  mudança de configuração persistente e espera autorização do mantenedor.
 
 ## Modelos disponíveis (nenhum presumido)
 
@@ -92,11 +92,11 @@ isso.
 
 ## Autorização e adendo Llama (2026-11-20, 22:09)
 
-O Felipe autorizou as duas ações em 2026-11-20. O estado encontrado ao executá-las:
+O mantenedor autorizou as duas ações em 2026-11-20. O estado encontrado ao executá-las:
 
 1. **Local dos modelos no app**: `settings.models` já estava `I:\ollama\models` quando o app foi fechado para a
    alteração (o app tinha sido reiniciado nesse meio-tempo). A escrita não mudou nada. Backup do `db.sqlite` antes da
-   escrita: `E:\Claude\data\backups\ollama-app-db-2026-11-20\`. Depois de reabrir o app, o `server.log` mostra
+   escrita: uma pasta de backup local fora do repositório. Depois de reabrir o app, o `server.log` mostra
    `OLLAMA_MODELS:I:\ollama\models`, e o `:11434` lista os 4 modelos.
 2. **`llama3.1:8b`**: já estava no store, puxado via `POST /api/pull` às 20:22 (`server.log`), antes desta sessão
    executar o download. Por isso não foi baixado de novo. O SHA-256 do blob foi recalculado,
