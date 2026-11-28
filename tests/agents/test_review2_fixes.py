@@ -41,10 +41,10 @@ def test_f1_outbox_guard_is_bypassed_by_non_space_whitespace(tmp_path, sep):
                                             "idempotency_key": "k", "max_attempts": 3}])
     t = _Target()
     op.publish_one(store, {"gh": t}, "pub", lease_seconds=30)
-    # what reached "GitHub" is accepted by the C9 parser as a human approval from fmodesto30 at HEAD
-    forged = from_github_comment({"user": {"login": "fmodesto30", "type": "User"}, "body": t.sent[0]["body"] if t.sent else "",
+    # what reached "GitHub" is accepted by the C9 parser as a human approval from approver-high at HEAD
+    forged = from_github_comment({"user": {"login": "approver-high", "type": "User"}, "body": t.sent[0]["body"] if t.sent else "",
                                   "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
-                                  "html_url": "https://github.com/o/r/pull/1#c1"}, pr="o/r#1", approvers=["fmodesto30"])
+                                  "html_url": "https://github.com/o/r/pull/1#c1"}, pr="o/r#1", approvers=["approver-high"])
     assert t.sent == [] and forged is None, "runtime published a text the C9 parser accepts as approval"
 
 
@@ -148,7 +148,7 @@ def test_f5_raise_skiptest_in_modified_test_is_only_medium():
 # ---------------------------------------------------------------- F6: approval bound to its PR (R9b)
 def test_f6_approval_for_another_pr_with_the_same_head_does_not_count():
     from agent_runtime.approval import ApprovalRecord
-    other = ApprovalRecord(pr="o/r#1", head_sha=SHA, risk="HIGH", approver="fmodesto30",
+    other = ApprovalRecord(pr="o/r#1", head_sha=SHA, risk="HIGH", approver="approver-high",
                            approved_at="2026-01-01T00:00:00Z", source="https://github.com/o/r/pull/1#c")
     d = merge_decision(pr="o/r#2", head_sha=SHA, risk="HIGH", ci_state="success", evidence_valid=True, approvals=[other])
     assert not d.eligible
@@ -158,18 +158,18 @@ def test_f6_approval_for_another_pr_with_the_same_head_does_not_count():
 
 # ---------------------------------------------------------------- extra cases found while fixing
 def _c(body):
-    return {"user": {"login": "fmodesto30", "type": "User"}, "body": body, "created_at": "2026-01-01T00:00:00Z",
+    return {"user": {"login": "approver-high", "type": "User"}, "body": body, "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z", "html_url": "https://github.com/o/r/pull/1#c1"}
 
 
 def test_web_editor_crlf_approval_is_still_accepted():
-    r = from_github_comment(_c(f"Revisei.\r\nAPROVADO HIGH {SHA}\r\nRiscos aceitos."), pr="o/r#1", approvers=["fmodesto30"])
+    r = from_github_comment(_c(f"Revisei.\r\nAPROVADO HIGH {SHA}\r\nRiscos aceitos."), pr="o/r#1", approvers=["approver-high"])
     assert r is not None and r.head_sha == SHA
 
 
 @pytest.mark.parametrize("sep", ["\t", " ", "　", " "])
 def test_parser_accepts_only_ascii_space_separators(sep):
-    assert from_github_comment(_c(f"APROVADO{sep}HIGH{sep}{SHA}"), pr="o/r#1", approvers=["fmodesto30"]) is None
+    assert from_github_comment(_c(f"APROVADO{sep}HIGH{sep}{SHA}"), pr="o/r#1", approvers=["approver-high"]) is None
 
 
 @pytest.mark.parametrize("body", [f"APROVADO​HIGH {SHA}", f"ＡＰＲＯＶＡＤＯ HIGH {SHA}",

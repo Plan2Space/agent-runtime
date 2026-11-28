@@ -42,5 +42,5 @@ PRs fechados antes desta reorganização (ex.: #673, #659, #655, #651, #631, #62
 ## Ressalvas
 
 - **#674:** a SPEC listava HEAD `d54e9100`; o HEAD no fechamento era `18736dd2`. Antes de portar, confirmar qual commit é o canônico.
-- **#23 (claude-engineering-skills):** fechado sem merge por esta reorganização, após erro 403 na tentativa do ChatGPT. Branch `feat/consumer-wiring-integrity` @ `abbda740` preservada. Issue substituta: https://github.com/Plan2Space/claude-engineering-skills/issues/25
+- **PR do claude-engineering-skills (repo privado):** fechado sem merge por esta reorganização, após erro 403 na tentativa do ChatGPT. Branch `feat/consumer-wiring-integrity` @ `abbda740` preservada. Issue substituta: https://github.com/Plan2Space/claude-engineering-skills/issues/25
 - **Board:** Project da organização Plan2Space criado a partir do GFCDOTA #1 (121 itens, 22 campos; statuses conferidos: Backlog 24, Blocked 31, Done 29, GPT Review 16, In Progress 18, Ready 3). Original mantido como histórico.

@@ -2,7 +2,7 @@
 
 Ported verbatim (logic unchanged) from `tools/orchestration/event_store.py`
 on `Plan2Space/sketchup-mcp@develop`, where it has been in production since
-FP-060 P1 (issue #606). Promoted there from the PoC in
+FP-060 P1 (sketchup-mcp issue 606). Promoted there from the spike in
 docs/spikes/sqlite_event_bus_poc/event_store.py. See
 docs/migration/pr-issue-matrix.md for the FP-062 migration context.
 

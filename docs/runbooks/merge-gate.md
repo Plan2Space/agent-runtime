@@ -6,7 +6,7 @@ O merge gate lê um PR no GitHub, classifica o risco, confere CI e aprovações 
 |---|---|
 | LOW (só documentação não executável) | sim, com CI verde e evidência no corpo do PR |
 | MEDIUM | sim, com CI verde, evidência **e** review do GitHub `APPROVED` no HEAD exato por um login configurado como aprovador MEDIUM, que não seja o autor do PR |
-| HIGH | **nunca**, mesmo com review aprovado. O Felipe aprova no chat e o coordenador faz o merge travado no HEAD |
+| HIGH | **nunca**, mesmo com review aprovado. O mantenedor aprova e o coordenador faz o merge travado no HEAD |
 
 ## Rodar
 
@@ -26,7 +26,7 @@ logins); sem aprovador MEDIUM configurado, nenhum PR MEDIUM é mergeado. Aprovad
 | `DRY_RUN_WOULD_MERGE` | elegível; não mergeou porque faltou `--execute` | operador |
 | `MERGED` | mergeado pelo runtime com `--match-head-commit` | ninguém |
 | `WAITING_HUMAN` | MEDIUM sem review `APPROVED` válido no HEAD atual | revisor aprova |
-| `HIGH_HUMAN_ONLY` | HIGH: nunca mergeado pelo runtime | Felipe aprova, coordenador mergeia |
+| `HIGH_HUMAN_ONLY` | HIGH: nunca mergeado pelo runtime | mantenedor aprova, coordenador mergeia |
 | `NOT_ELIGIBLE` | CI não está verde, ou PR em rascunho, sem evidência no corpo, ou base errada | autor |
 | `HEAD_CHANGED` | o HEAD mudou entre a decisão e o merge | rodar de novo |
 | `BLOCKED` | o GitHub recusou o merge; o motivo do GitHub fica no fato | humano |
