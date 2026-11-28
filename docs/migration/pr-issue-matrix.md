@@ -32,7 +32,7 @@ Estado em 2026-11-20. Todos os PRs abaixo foram fechados **sem merge** na reorga
 | [#630](https://github.com/Plan2Space/sketchup-mcp/pull/630) | feat: run the codex_reviewer's coordinator tests in a proven AppContainer (FP-060 MT-04) | `feat/fp060-mt04-codex-reviewer-sandbox` | `08cef4c6` | agent-runtime | [23](https://github.com/Plan2Space/agent-runtime/issues/23) | aberta (issue de migração) |
 | [#619](https://github.com/Plan2Space/sketchup-mcp/pull/619) | feat: add the GitHub review target for the outbox publisher (FP-060 M2) | `feat/fp060-m2-github-review-target` | `6e0e395e` | agent-runtime | [24](https://github.com/Plan2Space/agent-runtime/issues/24) | aberta (issue de migração) |
 | [#618](https://github.com/Plan2Space/sketchup-mcp/pull/618) | feat: publish outbox entries with reconciliation before every send (FP-060 M2) | `feat/fp060-m2-outbox-publisher` | `58f9b5cb` | agent-runtime | [25](https://github.com/Plan2Space/agent-runtime/issues/25) | aberta (issue de migração) |
-| [#614](https://github.com/Plan2Space/sketchup-mcp/pull/614) | chore(FP-060): install ub-mode review skill with governance guardrails | `chore/fp060-install-ub-mode-skill` | `62fbd285` | claude-engineering-skills | [24](https://github.com/Plan2Space/claude-engineering-skills/issues/24) | aberta (issue de migração) |
+| [#614](https://github.com/Plan2Space/sketchup-mcp/pull/614) | chore(FP-060): install ub-mode review skill with governance guardrails | `chore/fp060-install-ub-mode-skill` | `62fbd285` | claude-engineering-skills | issue no claude-engineering-skills | aberta (issue de migração) |
 | [#605](https://github.com/Plan2Space/sketchup-mcp/pull/605) | poc: isolated SQLite event bus with subprocess workers and recovery | `poc/isolated-sqlite-event-bus` | `8712949b` | agent-runtime | [26](https://github.com/Plan2Space/agent-runtime/issues/26) | aberta (issue de migração) |
 
 ## Não incluídos na SPEC
@@ -42,5 +42,5 @@ PRs fechados antes desta reorganização (ex.: #673, #659, #655, #651, #631, #62
 ## Ressalvas
 
 - **#674:** a SPEC listava HEAD `d54e9100`; o HEAD no fechamento era `18736dd2`. Antes de portar, confirmar qual commit é o canônico.
-- **PR do claude-engineering-skills (repo privado):** fechado sem merge por esta reorganização, após erro 403 na tentativa do ChatGPT. Branch `feat/consumer-wiring-integrity` @ `abbda740` preservada. Issue substituta: https://github.com/Plan2Space/claude-engineering-skills/issues/25
+- **PR do claude-engineering-skills (repo privado):** fechado sem merge por esta reorganização, após erro 403 na tentativa do ChatGPT. Branch `feat/consumer-wiring-integrity` @ `abbda740` preservada. Há uma issue substituta no claude-engineering-skills.
 - **Board:** Project da organização Plan2Space criado a partir do GFCDOTA #1 (121 itens, 22 campos; statuses conferidos: Backlog 24, Blocked 31, Done 29, GPT Review 16, In Progress 18, Ready 3). Original mantido como histórico.
