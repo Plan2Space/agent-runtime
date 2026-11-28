@@ -5,7 +5,10 @@ import pytest
 
 from agent_runtime.event_store import EventStore
 from agent_runtime.execution import (
-    AttemptOutcome, Recovery, classify_failure, execute_with_recovery,
+    AttemptOutcome,
+    Recovery,
+    classify_failure,
+    execute_with_recovery,
 )
 from agent_runtime.routing import Executor, Policy, Proof, Resources, Task, route
 
@@ -150,6 +153,16 @@ def test_reexecution_is_idempotent_per_run_id(store):
     assert len(events(store)) == n
 
 
+def test_infra_failure_is_retried_and_never_counted_against_the_model(store):
+    d = route(TASK, [local("llama3")], Policy(strategy="LOCAL_ONLY"), RES)
+    outs = iter([AttemptOutcome("FAILED", error="INFRA:SKETCHUP_BUSY"), ok()])
+    r = execute_with_recovery(d, lambda c, fb: next(outs), store=store)
+    assert r.status == "SUCCEEDED"
+    done = [p for t, p in events(store) if t == "EXECUTION_COMPLETED"][0]
+    assert done["local_attempts_failed"] == 0
+    failed = [p for t, p in events(store) if t == "EXECUTION_ATTEMPT_FAILED"][0]
+    assert failed["failure_class"] == "TOOL" and failed["infra"] is True
+
 # SPEC P2S-LOCAL-FIRST-EXECUTION-001,
 # §3 l.73 / §4 l.111: default attempt limit is 2 per executor and 4 in total. Changing these
 # numbers requires changing the SPEC first, not this test.
@@ -169,3 +182,17 @@ def test_default_recovery_stops_an_always_failing_run_at_the_spec_total(store):
                               store=store)
     assert r.status == "FAILED" and len(calls) == SPEC_MAX_TOTAL_ATTEMPTS
     assert calls == ["m0", "m0", "m1", "m1"]
+
+
+def test_run_attempt_that_raises_is_an_infra_failure_with_a_terminal_fact(store):
+    d = route(TASK, [local("llama3")], Policy(strategy="LOCAL_ONLY"), RES)
+
+    def boom(c, fb):
+        raise RuntimeError("adapter crashed")
+
+    r = execute_with_recovery(d, boom, store=store)
+    evs = events(store)
+    assert r.status == "FAILED" and evs[-1][0] == "EXECUTION_FAILED"
+    failed = [p for t, p in evs if t == "EXECUTION_ATTEMPT_FAILED"]
+    assert failed and failed[0]["infra"] is True and failed[0]["error"].startswith("INFRA:RUN_ATTEMPT_RAISED")
+    assert evs[-1][1]["local_attempts_failed"] == 0

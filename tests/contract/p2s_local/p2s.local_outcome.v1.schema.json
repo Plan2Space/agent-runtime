@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "p2s.local_outcome.v1",
+  "title": "Desfecho de um job do executor local (lido pelo roteador como AttemptOutcome)",
+  "type": "object",
+  "required": ["schema", "job_id", "task_type", "status", "error", "executor_id", "tokens_measured",
+               "tokens_estimated", "cloud", "assistance", "permissions", "failure", "started_at", "finished_at"],
+  "properties": {
+    "schema": {"const": "p2s.local_outcome.v1"},
+    "job_id": {"type": ["string", "null"]},
+    "task_type": {"type": ["string", "null"]},
+    "status": {"enum": ["SUCCEEDED", "FAILED", "TIMEOUT", "TOOL_ERROR", "REFUSED", "CANCELLED"]},
+    "error": {"type": ["string", "null"], "description": "INFRA:<codigo> = motor/maquina/provedor, nao conta contra o executor"},
+    "failure_class": {"enum": ["PROTOCOL", "SCHEMA", "CONTEXT", "TOOL", "CAPABILITY", null]},
+    "executor_id": {"type": ["string", "null"], "description": "ollama:<model>@<digest8> | deterministic"},
+    "attempt": {"type": "integer"},
+    "tokens_measured": {"type": ["integer", "null"], "description": "contadores do Ollama; 0 no deterministico"},
+    "tokens_estimated": {"type": "null"},
+    "cloud": {
+      "type": "object",
+      "required": ["tokens", "providers_called"],
+      "properties": {"tokens": {"const": 0}, "providers_called": {"type": "array", "maxItems": 0}}
+    },
+    "engine": {
+      "type": "object",
+      "required": ["repo", "sha40", "dirty", "pinned"],
+      "properties": {
+        "repo": {"const": "Plan2Space/sketchup-mcp-next"},
+        "root": {"type": "string"},
+        "sha40": {"type": ["string", "null"]},
+        "dirty": {"type": ["boolean", "null"]},
+        "pinned": {"type": "string"}
+      }
+    },
+    "run_id": {"type": ["string", "null"]},
+    "request_id": {"type": ["string", "null"]},
+    "artifacts": {
+      "type": "array",
+      "items": {"type": "object", "required": ["kind", "path", "sha256"],
+                "properties": {"kind": {"enum": ["skp", "render"]}, "path": {"type": "string"},
+                               "sha256": {"type": ["string", "null"]}}}
+    },
+    "tool_calls": {"type": "array"},
+    "refusals": {"type": "array"},
+    "assistance": {"type": "array"},
+    "permissions": {"type": "array"},
+    "failure": {"type": ["object", "null"]},
+    "turn": {"type": "object"},
+    "job_sha256": {"type": "string"},
+    "started_at": {"type": "string"},
+    "finished_at": {"type": "string"}
+  }
+}

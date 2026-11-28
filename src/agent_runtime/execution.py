@@ -27,9 +27,9 @@ from .routing import Candidate, RoutingDecision
 
 FAILURE_CLASSES = ("PROTOCOL", "SCHEMA", "CONTEXT", "TOOL", "CAPABILITY")
 _PATTERNS = (
-    ("CONTEXT", re.compile(r"context (length|window)|too many tokens|truncat", re.I)),
-    ("SCHEMA", re.compile(r"schema|missing field|unexpected field|validation failed", re.I)),
-    ("PROTOCOL", re.compile(r"invalid json|malformed|tool call|unparseable|protocol", re.I)),
+    ("CONTEXT", re.compile(r"context (length|window)|too many tokens|truncat", re.IGNORECASE)),
+    ("SCHEMA", re.compile(r"schema|missing field|unexpected field|validation failed", re.IGNORECASE)),
+    ("PROTOCOL", re.compile(r"invalid json|malformed|tool call|unparseable|protocol", re.IGNORECASE)),
 )
 
 
@@ -39,6 +39,7 @@ class AttemptOutcome:
     error: str | None = None
     tokens_measured: int | None = None
     tokens_estimated: int | None = None
+    failure_class: str | None = None  # executor's own classification, when it reports one
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,17 @@ class ExecutionResult:
     cloud_tokens_measured: int
 
 
+def _is_infra(outcome: AttemptOutcome) -> bool:
+    """Engine/machine failure reported by the local executor ("INFRA:<code>"): not the model's fault."""
+    return (outcome.error or "").startswith("INFRA:")
+
+
 def classify_failure(outcome: AttemptOutcome) -> str:
     """Map a failed attempt to one failure class. Order matters: TOOL_ERROR is the adapter's verdict."""
+    if _is_infra(outcome):
+        return "TOOL"
+    if outcome.failure_class in FAILURE_CLASSES:
+        return outcome.failure_class
     if outcome.status == "TOOL_ERROR":
         return "TOOL"
     text = outcome.error or ""
@@ -112,7 +122,10 @@ def execute_with_recovery(decision: RoutingDecision, run_attempt: Callable[[Cand
             total += 1
             rec("EXECUTION_ATTEMPT_STARTED", {"executor_id": cand.executor_id, "kind": cand.kind,
                                               "tier": cand.tier, "attempt": attempt, "feedback": feedback})
-            out = run_attempt(cand, feedback)
+            try:
+                out = run_attempt(cand, feedback)
+            except Exception as exc:  # the adapter crashed: still a bounded, recorded failure, never a lost task
+                out = AttemptOutcome("FAILED", error=f"INFRA:RUN_ATTEMPT_RAISED {type(exc).__name__}: {exc}"[:500])
             if out.tokens_measured is not None or out.tokens_estimated is not None:
                 rec("TOKENS_CONSUMED", {"executor_id": cand.executor_id, "kind": cand.kind,
                                         "measured": out.tokens_measured, "estimated": out.tokens_estimated})
@@ -127,8 +140,9 @@ def execute_with_recovery(decision: RoutingDecision, run_attempt: Callable[[Cand
             cls = classify_failure(out)
             rec("EXECUTION_ATTEMPT_FAILED", {"executor_id": cand.executor_id, "kind": cand.kind,
                                              "attempt": attempt, "failure_class": cls,
-                                             "status": out.status, "error": (out.error or "")[:500]})
-            if cand.kind == "local":
+                                             "status": out.status, "error": (out.error or "")[:500],
+                                             "infra": _is_infra(out)})
+            if cand.kind == "local" and not _is_infra(out):
                 local_failed += 1
                 last = (cand.executor_id, cls)
             feedback = {"failure_class": cls, "attempt": attempt, "executor_id": cand.executor_id,
