@@ -44,7 +44,7 @@ class AttemptOutcome:
 @dataclass(frozen=True)
 class Recovery:
     attempts_per_executor: int = 2
-    max_total_attempts: int = 6
+    max_total_attempts: int = 4  # SPEC P2S-LOCAL-FIRST-EXECUTION-001 §3/§4 (engineering-specs#95): 2 por executor, 4 no total
 
 
 @dataclass(frozen=True)
