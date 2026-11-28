@@ -1,4 +1,4 @@
-"""Cloud-token baseline, measured (adendo §7).
+"""Cloud-token baseline, measured.
 
 Engineering (before/after Local First): the ``usage`` block Claude Code writes on every assistant
 message of its session transcripts (``~/.claude/projects/*/*.jsonl``) — API-reported counts, so

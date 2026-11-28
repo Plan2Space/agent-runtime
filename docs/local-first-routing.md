@@ -1,6 +1,6 @@
-# Local First routing — auditoria e desenho (Frente E, 2026-11-27)
+# Local First routing — auditoria e desenho (2026-11-27)
 
-SPEC de origem: P2S-LOCAL-FIRST-EXECUTION-001 §4–§8 (pedido literal do Felipe, 2026-11-27).
+SPEC de origem: P2S-LOCAL-FIRST-EXECUTION-001 §4–§8.
 
 ## O que já existia (auditoria)
 
@@ -29,22 +29,22 @@ orquestrador aqui: `routing.py` fica entre o `claim` (job) e o `AgentAdapter` (e
 - `EventStore`: fatos RECORDED `ROUTING_DECIDED`, `ROUTING_REFUSED`, `EXECUTION_ATTEMPT_STARTED`,
   `EXECUTION_ATTEMPT_FAILED`, `EXECUTION_ESCALATED`, `EXECUTION_COMPLETED`, `EXECUTION_FAILED`,
   `TOKENS_CONSUMED` (`measured` e `estimated` em campos separados), `aggregate_type="task"`,
-  `producer="router"`. A Frente D lê estes eventos.
+  `producer="router"`. A UI lê estes eventos.
 
 ## Em aberto
 
-- Origem das `Proof`: matriz da Frente A + `benchmark_result` da PoC/C. O adaptador que monta
+- Origem das `Proof`: matriz de capacidade + `benchmark_result` do executor local. O adaptador que monta
   `Executor.proofs` a partir desses registros entra quando o formato da matriz estiver fixado.
-- `run_attempt` real: interface combinada com a PoC (executor local + fila de produção) —
+- `run_attempt` real: interface combinada com o executor local (executor local + fila de produção) —
   "executar a tarefa X com o executor Y" contra um motor pinado por SHA/tag, nunca uma worktree.
 - Item 8 do §6 (falha recorrente → melhoria do motor) é leitura agregada dos eventos, não lógica aqui.
 
-## Adendo (2026-11-27): Codex, provas da PoC e linha de base
+## Codex, provas do executor local e linha de base (2026-11-27)
 
 - **Codex = Claude Code** (`agent_identity.py`): mesma identidade `{agent, session_id, frente, worktree,
   task_id}`, mesmos fatos `AGENT_SESSION_REGISTERED` / `TASK_OWNERSHIP_CLAIMED` / `TASK_OWNERSHIP_RELEASED`
   (`aggregate_type="agent_task"`), um dono por tarefa qualquer que seja o agente. Não há caminho próprio do Codex.
-- **Provas e falhas da PoC** (`proofs.py`): lê `capability_proofs.json` (`p2s.local_capability.v1`) →
+- **Provas e falhas do executor local** (`proofs.py`): lê `capability_proofs.json` (`p2s.local_capability.v1`) →
   `Executor.proofs`; `success_rate = null` não é prova. Lê o JSONL `p2s.local_failure.v1` →
   `route(..., recent_failures=...)` e `Policy.max_recent_failures` rejeita com `RECURRING_FAILURE`.
   Erro `INFRA:<code>` do executor é classe TOOL, repetido no mesmo modelo e não conta contra ele.
@@ -56,4 +56,3 @@ orquestrador aqui: `routing.py` fica entre o `claim` (job) e o `AgentAdapter` (e
   - produção: só `TOKENS_CONSUMED` com `kind=cloud` do roteador; medido e estimado separados. Meta: 0.
   - Medição de referência (2026-11-20 → 2026-11-27, todas as sessões): `claude-opus-5-5` 12 946 mensagens,
     input 29 174, cache_creation 41 681 281, cache_read 5 569 141 197, output 10 811 382 tokens.
-    Arquivo: `E:\Claude\data\runs\p2s-local-first-baseline\baseline_engineering_2026-11-20_27.json`.

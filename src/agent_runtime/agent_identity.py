@@ -1,4 +1,4 @@
-"""One governance for Claude Code and Codex (adendo §1).
+"""One governance for Claude Code and Codex.
 
 Both engineering agents register with the same identity shape and claim tasks through the same
 EventStore facts, so the Agent Bar sees them side by side and a task has one owner whichever agent

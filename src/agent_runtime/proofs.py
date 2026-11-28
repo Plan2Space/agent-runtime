@@ -1,4 +1,4 @@
-"""Read the PoC's capability proofs and failure records for the router (adendo §6).
+"""Read the local executor's capability proofs and failure records for the router.
 
 Producer: the local executor's benchmark in agent-bar (``capability_proofs.json``,
 schema ``p2s.local_capability.v1``; failures JSONL ``p2s.local_failure.v1``). The runtime only

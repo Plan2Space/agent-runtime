@@ -162,3 +162,23 @@ def test_infra_failure_is_retried_and_never_counted_against_the_model(store):
     assert done["local_attempts_failed"] == 0
     failed = [p for t, p in events(store) if t == "EXECUTION_ATTEMPT_FAILED"][0]
     assert failed["failure_class"] == "TOOL" and failed["infra"] is True
+
+# SPEC P2S-LOCAL-FIRST-EXECUTION-001,
+# §3 l.73 / §4 l.111: default attempt limit is 2 per executor and 4 in total. Changing these
+# numbers requires changing the SPEC first, not this test.
+SPEC_ATTEMPTS_PER_EXECUTOR = 2
+SPEC_MAX_TOTAL_ATTEMPTS = 4
+
+
+def test_default_recovery_matches_the_approved_spec():
+    assert Recovery() == Recovery(attempts_per_executor=SPEC_ATTEMPTS_PER_EXECUTOR,
+                                  max_total_attempts=SPEC_MAX_TOTAL_ATTEMPTS)
+
+
+def test_default_recovery_stops_an_always_failing_run_at_the_spec_total(store):
+    calls = []
+    d = route(TASK, [local(f"m{i}") for i in range(5)], Policy(strategy="LOCAL_ONLY"), RES)
+    r = execute_with_recovery(d, lambda c, fb: calls.append(c.executor_id) or fail("schema validation failed"),
+                              store=store)
+    assert r.status == "FAILED" and len(calls) == SPEC_MAX_TOTAL_ATTEMPTS
+    assert calls == ["m0", "m0", "m1", "m1"]

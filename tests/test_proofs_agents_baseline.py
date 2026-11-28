@@ -1,5 +1,5 @@
-"""PoC capability proofs + failure records in routing, Codex/Claude identity under one ownership,
-and the measured cloud-token baseline (adendo §1/§6/§7)."""
+"""Local-executor capability proofs + failure records in routing, Codex/Claude identity under one ownership,
+and the measured cloud-token baseline."""
 import json
 
 import pytest
@@ -86,7 +86,7 @@ def store(tmp_path):
 
 
 def ident(agent, session="s1", task="P2S-E-1"):
-    return AgentIdentity(agent=agent, session_id=session, frente="E", worktree="E:/Claude/worktrees/x",
+    return AgentIdentity(agent=agent, session_id=session, frente="E", worktree="/work/wt-x",
                          task_id=task)
 
 

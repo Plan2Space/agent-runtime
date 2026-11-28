@@ -1,4 +1,4 @@
-"""Contract tests: runtime side of the PoC boundary (agent-bar local executor).
+"""Contract tests: runtime side of the local-executor boundary (agent-bar local executor).
 
 Schemas are vendored verbatim from Plan2Space/agent-bar@123b8fafc18c598a1b5ea3a2c42ebcec87cd5b12
 (docs/contracts/). The runtime has no runtime dependencies, so instead of a JSON Schema engine these

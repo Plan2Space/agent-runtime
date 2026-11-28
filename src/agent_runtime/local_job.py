@@ -1,4 +1,4 @@
-"""``run_attempt`` for local and deterministic executors via the PoC's file/CLI boundary.
+"""``run_attempt`` for local and deterministic executors via the local executor's file/CLI boundary.
 
 Contract (agent-bar@123b8faf, docs/contracts/): the runtime writes a ``p2s.local_job.v1`` file,
 runs ``python -m agent_bar.platform.local_job run <job.json> --out <dir>`` and reads
