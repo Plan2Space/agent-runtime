@@ -2,7 +2,7 @@
 
 ## Conhecimento de engenharia Plan2Space
 
-Consulte `Plan2Space/claude-engineering-skills` na release `v0.9.3`, commit `3f93ccb001d4609527587ddfa1a716ca5a09b38c`. O catálogo autoritativo é `catalog/skills.json`; use `skills/spec-author/SKILL.md` para escrever SPECs, `skills/spec-progress-keeper/SKILL.md` para acompanhar marcos e `skills/backlog-governance/SKILL.md` para triagem de Issues/Board. Registre a skill e esse SHA na evidência. A instalação automática por lockfile ainda é a microtarefa microtarefa do hub; não declare uma skill carregada sem verificá-la.
+Consulte `Plan2Space/claude-engineering-skills` na release `v0.9.3`, commit `3f93ccb001d4609527587ddfa1a716ca5a09b38c`. O catálogo autoritativo é `catalog/skills.json`; use `skills/spec-author/SKILL.md` para escrever SPECs, `skills/spec-progress-keeper/SKILL.md` para acompanhar marcos e `skills/backlog-governance/SKILL.md` para triagem de Issues/Board. Registre a skill e esse SHA na evidência. A instalação automática por lockfile ainda é uma microtarefa do hub; não declare uma skill carregada sem verificá-la.
 
 O [contrato de ownership](https://github.com/Plan2Space/claude-engineering-skills/blob/v0.9.3/contracts/ownership.v1.md) mantém skills reutilizáveis e contratos compartilhados no hub. SPECs, código, testes e contratos internos de execução do `agent-runtime` ficam neste repositório. Cite SPECs externas por commit imutável; não copie decisões normativas. Issues e [Project #1](https://github.com/orgs/Plan2Space/projects/1) guardam o estado operacional.
 
